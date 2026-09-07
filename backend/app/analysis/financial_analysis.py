@@ -41,3 +41,21 @@ def compute_roe(net_income: float | None, total_equity: float | None) -> float |
     if net_income is None or total_equity is None or total_equity <= 0:
         return None
     return round(net_income / total_equity * 100, 2)
+
+
+def compute_operating_margin(operating_income: float | None, revenue: float | None) -> float | None:
+    if operating_income is None or revenue is None or revenue <= 0:
+        return None
+    return round(operating_income / revenue * 100, 2)
+
+
+def compute_net_margin(net_income: float | None, revenue: float | None) -> float | None:
+    if net_income is None or revenue is None or revenue <= 0:
+        return None
+    return round(net_income / revenue * 100, 2)
+
+
+def compute_debt_ratio(total_liabilities: float | None, total_equity: float | None) -> float | None:
+    if total_liabilities is None or total_equity is None or total_equity <= 0:
+        return None
+    return round(total_liabilities / total_equity * 100, 2)

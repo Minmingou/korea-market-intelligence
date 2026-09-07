@@ -18,8 +18,10 @@ def _clear_disclosure_cache():
     # _disclosure_cache는 프로세스(모듈) 전역이라 테스트 간에 공유된다 — 매 테스트마다
     # 비워서 서로 오염시키지 않도록 한다.
     dart_client_module._disclosure_cache.clear()
+    dart_client_module._history_cache.clear()
     yield
     dart_client_module._disclosure_cache.clear()
+    dart_client_module._history_cache.clear()
 
 
 def _build_corp_code_zip(entries: list[tuple[str, str, str]]) -> bytes:
@@ -174,6 +176,83 @@ def test_fetch_financials_returns_none_for_unknown_stock(dart_client_with_fake_t
     assert dart_client_with_fake_transport.fetch_financials("999999") is None
 
 
+def test_fetch_financials_history_returns_oldest_to_newest(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "dart_api_key", "test-key")
+    monkeypatch.setattr(
+        "app.clients.dart_client._CORP_CODE_CACHE_PATH", tmp_path / "dart_corp_code_map.json"
+    )
+    zip_bytes = _build_corp_code_zip([("00126380", "삼성전자", "005930")])
+    now = datetime.now(timezone.utc)
+    periods = DartClient._candidate_periods(now)[:4]  # 최신 -> 과거 순 후보 4개만 성공시킨다
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/corpCode.xml":
+            return httpx.Response(200, content=zip_bytes)
+        if request.url.path == "/api/fnlttSinglAcnt.json":
+            bsns_year = request.url.params.get("bsns_year")
+            reprt_code = request.url.params.get("reprt_code")
+            for idx, (year, code) in enumerate(periods):
+                if bsns_year == str(year) and reprt_code == code:
+                    rows = [
+                        {
+                            "account_nm": "매출액",
+                            "fs_div": "CFS",
+                            "thstrm_amount": str(1000 + idx * 100),
+                        }
+                    ]
+                    return httpx.Response(200, json={"status": "000", "message": "정상", "list": rows})
+            return httpx.Response(200, json={"status": "013", "message": "조회된 데이타가 없습니다."})
+        raise AssertionError(f"unexpected path: {request.url.path}")
+
+    client = DartClient()
+    client._http = httpx.Client(
+        base_url=settings.dart_base_url, transport=httpx.MockTransport(handler)
+    )
+
+    history = client.fetch_financials_history("005930", limit=4)
+
+    assert [item.revenue for item in history] == [1300.0, 1200.0, 1100.0, 1000.0]
+    assert (history[0].bsns_year, history[0].reprt_code) == (str(periods[3][0]), periods[3][1])
+    assert (history[-1].bsns_year, history[-1].reprt_code) == (str(periods[0][0]), periods[0][1])
+
+
+def test_fetch_financials_history_unknown_stock_returns_empty(dart_client_with_fake_transport):
+    assert dart_client_with_fake_transport.fetch_financials_history("999999") == []
+
+
+def test_fetch_financials_history_is_cached_across_client_instances(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "dart_api_key", "test-key")
+    monkeypatch.setattr(
+        "app.clients.dart_client._CORP_CODE_CACHE_PATH", tmp_path / "dart_corp_code_map.json"
+    )
+    zip_bytes = _build_corp_code_zip([("00126380", "삼성전자", "005930")])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/corpCode.xml":
+            return httpx.Response(200, content=zip_bytes)
+        if request.url.path == "/api/fnlttSinglAcnt.json":
+            rows = [{"account_nm": "매출액", "fs_div": "CFS", "thstrm_amount": "1000"}]
+            return httpx.Response(200, json={"status": "000", "message": "정상", "list": rows})
+        raise AssertionError(f"unexpected path: {request.url.path}")
+
+    client = DartClient()
+    client._http = httpx.Client(
+        base_url=settings.dart_base_url, transport=httpx.MockTransport(handler)
+    )
+    first = client.fetch_financials_history("005930", limit=2)
+
+    def failing_handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("캐시가 있으면 두 번째 요청은 네트워크를 타면 안 된다")
+
+    second_client = DartClient()
+    second_client._http = httpx.Client(
+        base_url=settings.dart_base_url, transport=httpx.MockTransport(failing_handler)
+    )
+    second = second_client.fetch_financials_history("005930", limit=2)
+
+    assert second == first
+
+
 def test_fetch_disclosures_parses_list_and_builds_url(dart_client_with_fake_transport):
     items = dart_client_with_fake_transport.fetch_disclosures("005930", count=5)
 
@@ -237,6 +316,23 @@ def test_mock_dart_client_financials_stable_across_calls():
     b = MockDartClient().fetch_financials("005930")
     assert a.net_income == b.net_income
     assert a.total_equity == b.total_equity
+
+
+def test_mock_dart_client_fetch_financials_history_returns_requested_count():
+    history = MockDartClient().fetch_financials_history("005930", limit=4)
+    assert len(history) == 4
+    assert all(item.data_source == "mock" for item in history)
+    assert all(item.revenue is not None and item.revenue > 0 for item in history)
+
+
+def test_mock_dart_client_fetch_financials_history_unknown_stock_returns_empty():
+    assert MockDartClient().fetch_financials_history("999999") == []
+
+
+def test_mock_dart_client_fetch_financials_history_stable_across_calls():
+    a = MockDartClient().fetch_financials_history("005930", limit=3)
+    b = MockDartClient().fetch_financials_history("005930", limit=3)
+    assert [item.revenue for item in a] == [item.revenue for item in b]
 
 
 def test_mock_dart_client_fetch_disclosures_urls_are_none():

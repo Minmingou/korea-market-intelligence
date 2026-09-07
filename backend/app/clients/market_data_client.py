@@ -43,6 +43,8 @@ class RawDailyBar:
     low: float
     close: float
     volume: int
+    # 일부 데이터 소스/기간에는 거래대금이 없을 수 있어 None(N/A)을 허용한다.
+    trading_value: float | None = None
 
 
 @dataclass

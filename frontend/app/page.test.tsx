@@ -12,6 +12,7 @@ import type {
   ScreenerResult,
   Sector,
   Stock,
+  ValueScreenerResult,
 } from "@/types/market";
 
 // MarketMap은 recharts(Treemap)를 그리는데 jsdom에서는 크기를 계산하지 못해 아무것도
@@ -47,6 +48,7 @@ import {
   getScreener,
   getSectors,
   getStocks,
+  getValueScreener,
 } from "@/lib/api";
 
 import DashboardPage from "./page";
@@ -59,6 +61,7 @@ const mockedGetMarketBrief = vi.mocked(getMarketBrief);
 const mockedGetMarketEvents = vi.mocked(getMarketEvents);
 const mockedGetMarketMovers = vi.mocked(getMarketMovers);
 const mockedGetScreener = vi.mocked(getScreener);
+const mockedGetValueScreener = vi.mocked(getValueScreener);
 
 const MOVER_CATEGORIES: MoverCategory[] = [
   "top_gainers",
@@ -186,6 +189,13 @@ const screenerResult: ScreenerResult = {
   data_source: "mock",
 };
 
+const valueScreenerResult: ValueScreenerResult = {
+  items: [],
+  candidate_pool_size: 0,
+  updated_at: "2026-09-07T00:00:00Z",
+  data_source: "mock",
+};
+
 function mockAllSucceed() {
   mockedGetMarketOverview.mockResolvedValue(overview);
   mockedGetStocks.mockResolvedValue([stock("005930", "삼성전자")]);
@@ -194,6 +204,7 @@ function mockAllSucceed() {
   mockedGetMarketBrief.mockResolvedValue(brief);
   mockedGetMarketEvents.mockResolvedValue(events);
   mockedGetScreener.mockResolvedValue(screenerResult);
+  mockedGetValueScreener.mockResolvedValue(valueScreenerResult);
   mockedGetMarketMovers.mockImplementation((category) => Promise.resolve(moverResult(category)));
 }
 

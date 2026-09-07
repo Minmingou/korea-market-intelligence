@@ -50,6 +50,17 @@ _RETRY_BACKOFF_SEC = 0.5
 _INDEX_CODE = {"KOSPI": "0001", "KOSDAQ": "1001"}
 
 
+def _safe_float(value: object) -> float | None:
+    # 거래대금처럼 응답에 없거나 파싱에 실패할 수 있는 부가 필드용 - 필수 필드와
+    # 달리 이 값 하나 때문에 봉 전체를 버리지 않고 None(N/A)으로 남긴다.
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _rank_market_iscd(market: str | None) -> str:
     # 순위분석 API(등락률/거래량순위/투자자매매동향)의 FID_INPUT_ISCD도 지수 조회와
     # 같은 코드 체계를 쓴다 (라이브 호출로 확인: iscd="0001"을 주면 결과가 전부
@@ -544,6 +555,7 @@ class KISClient(MarketDataClient):
                         low=float(row["stck_lwpr"]),
                         close=float(row["stck_clpr"]),
                         volume=int(float(row["acml_vol"])),
+                        trading_value=_safe_float(row.get("acml_tr_pbmn")),
                     )
                 except (KeyError, ValueError, TypeError):
                     continue
@@ -609,9 +621,12 @@ class KISClient(MarketDataClient):
         )
         name = master_entry.stock_name if master_entry else stock_code
         market = master_entry.market if master_entry else "KOSPI"
+        # inquire-price 응답 자체에 업종 한글명(bstp_kor_isnm)이 포함되어 있어
+        # 큐레이션된 유니버스(mock_universe) 밖의 종목도 실제 업종명을 채울 수 있다.
+        sector = output.get("bstp_kor_isnm") or "미분류"
 
         now = datetime.now(timezone.utc)
-        stock = self._parse_stock(stock_code, name, market, None, output, now)
+        stock = self._parse_stock(stock_code, name, market, sector, output, now)
         if stock is None:
             return None
 

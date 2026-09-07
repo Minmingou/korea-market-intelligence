@@ -9,6 +9,7 @@ import RefreshButton from "@/components/RefreshButton";
 import Screener from "@/components/Screener";
 import SearchBar from "@/components/SearchBar";
 import SectorTable from "@/components/SectorTable";
+import ValueScreener from "@/components/ValueScreener";
 import {
   getMarketBrief,
   getMarketEvents,
@@ -18,6 +19,7 @@ import {
   getScreener,
   getSectors,
   getStocks,
+  getValueScreener,
 } from "@/lib/api";
 import type { MoverCategory } from "@/types/market";
 
@@ -39,7 +41,7 @@ async function safe<T>(promise: Promise<T>): Promise<T | null> {
 }
 
 export default async function DashboardPage() {
-  const [overview, stocks, sectors, moneyFlow, brief, events, screener, ...movers] =
+  const [overview, stocks, sectors, moneyFlow, brief, events, screener, valueScreener, ...movers] =
     await Promise.all([
       safe(getMarketOverview()),
       safe(getStocks()),
@@ -48,6 +50,7 @@ export default async function DashboardPage() {
       safe(getMarketBrief()),
       safe(getMarketEvents(10)),
       safe(getScreener({ limit: 10 })),
+      safe(getValueScreener({ limit: 10 })),
       ...MOVER_CATEGORIES.map((category) => safe(getMarketMovers(category, { limit: 10 }))),
     ]);
 
@@ -111,13 +114,23 @@ export default async function DashboardPage() {
         )}
       </div>
 
-      {screener ? (
-        <Screener data={screener} />
-      ) : (
-        <p className="border border-red-900 p-4 text-sm text-red-400">
-          Screener 데이터를 불러올 수 없습니다 (N/A).
-        </p>
-      )}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {screener ? (
+          <Screener data={screener} />
+        ) : (
+          <p className="border border-red-900 p-4 text-sm text-red-400">
+            Screener 데이터를 불러올 수 없습니다 (N/A).
+          </p>
+        )}
+
+        {valueScreener ? (
+          <ValueScreener data={valueScreener} />
+        ) : (
+          <p className="border border-red-900 p-4 text-sm text-red-400">
+            Value Screener 데이터를 불러올 수 없습니다 (N/A).
+          </p>
+        )}
+      </div>
 
       {moverResults.length > 0 ? (
         <MarketMovers results={moverResults} />

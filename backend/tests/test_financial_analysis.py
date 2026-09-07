@@ -1,6 +1,11 @@
+import pytest
+
 from app.analysis.financial_analysis import (
     compute_bps,
+    compute_debt_ratio,
     compute_eps,
+    compute_net_margin,
+    compute_operating_margin,
     compute_per,
     compute_pbr,
     compute_roe,
@@ -59,3 +64,29 @@ def test_compute_roe_none_when_equity_not_positive():
     assert compute_roe(100_000, 0) is None
     assert compute_roe(100_000, -1_000) is None
     assert compute_roe(None, 1_000_000) is None
+
+
+def test_compute_operating_margin():
+    assert compute_operating_margin(200_000, 1_000_000) == 20.0
+
+
+def test_compute_operating_margin_none_when_revenue_not_positive():
+    assert compute_operating_margin(200_000, 0) is None
+    assert compute_operating_margin(200_000, None) is None
+
+
+def test_compute_net_margin():
+    assert compute_net_margin(100_000, 1_000_000) == 10.0
+
+
+def test_compute_net_margin_none_when_revenue_not_positive():
+    assert compute_net_margin(100_000, 0) is None
+
+
+def test_compute_debt_ratio():
+    assert compute_debt_ratio(400_000, 600_000) == pytest.approx(66.67, rel=1e-3)
+
+
+def test_compute_debt_ratio_none_when_equity_not_positive():
+    assert compute_debt_ratio(400_000, 0) is None
+    assert compute_debt_ratio(None, 600_000) is None

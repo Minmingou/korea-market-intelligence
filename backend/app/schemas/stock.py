@@ -52,6 +52,7 @@ class DailyBarOut(BaseModel):
     low: float
     close: float
     volume: int
+    trading_value: float | None
 
 
 class StockChartOut(BaseModel):

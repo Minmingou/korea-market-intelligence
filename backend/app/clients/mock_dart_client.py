@@ -8,7 +8,12 @@
 import random
 from datetime import datetime, timedelta, timezone
 
-from app.clients.dart_data_client import DartDataClient, RawDisclosure, RawFinancials
+from app.clients.dart_data_client import (
+    DartDataClient,
+    RawDisclosure,
+    RawFinancials,
+    candidate_report_periods,
+)
 from app.clients.mock_universe import STOCK_UNIVERSE, TIER_MARKET_CAP
 
 _STOCK_BY_CODE = {entry[0]: entry for entry in STOCK_UNIVERSE}
@@ -61,6 +66,45 @@ class MockDartClient(DartDataClient):
             total_liabilities=round(total_liabilities, 2),
             total_equity=round(total_equity, 2),
         )
+
+    def fetch_financials_history(self, stock_code: str, limit: int = 4) -> list[RawFinancials]:
+        entry = _STOCK_BY_CODE.get(stock_code)
+        if entry is None:
+            return []
+        _, name, _market, _sector, _base_price, tier = entry
+
+        # 최신 분기 기준값은 fetch_financials와 같은 시드를 쓰므로 두 엔드포인트가
+        # 서로 모순되지 않는다(같은 종목이면 최신 분기 값이 대략 일치).
+        rng = random.Random(int(stock_code))
+        market_cap_base = TIER_MARKET_CAP[tier]
+        target_per = rng.uniform(6.0, 28.0)
+        net_income = market_cap_base / target_per
+        revenue = net_income * rng.uniform(4.0, 12.0)
+        operating_income = net_income * rng.uniform(1.1, 1.7)
+        growth = rng.uniform(-0.04, 0.07)  # 분기당 평균 성장률(잡음 포함, 역성장도 가능)
+
+        now = datetime.now(timezone.utc)
+        periods = candidate_report_periods(now)[:limit]  # 최신 -> 과거 순
+
+        results: list[RawFinancials] = []
+        for i, (year, reprt_code) in enumerate(periods):
+            # i=0이 최신 분기이므로 과거로 갈수록(i가 클수록) growth의 역수만큼 할인한다.
+            factor = (1 + growth) ** (-i) * rng.uniform(0.93, 1.07)
+            results.append(
+                RawFinancials(
+                    stock_code=stock_code,
+                    corp_name=name,
+                    bsns_year=str(year),
+                    reprt_code=reprt_code,
+                    data_source="mock",
+                    fetched_at=now,
+                    revenue=round(revenue * factor, 2),
+                    operating_income=round(operating_income * factor, 2),
+                    net_income=round(net_income * factor, 2),
+                )
+            )
+
+        return list(reversed(results))  # 오래된 분기 -> 최신 분기 순
 
     def fetch_disclosures(self, stock_code: str, count: int = 10) -> list[RawDisclosure]:
         if stock_code not in _STOCK_BY_CODE:

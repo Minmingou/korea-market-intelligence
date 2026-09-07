@@ -16,7 +16,7 @@ def get_news(stock_code: str, count: int = 10) -> NewsListOut:
         logger.exception("뉴스 목록 조회에 실패했습니다: %s", stock_code)
         raw_items = []
 
-    data_source = "mock" if isinstance(client, MockNewsClient) else "news"
+    data_source = "mock" if isinstance(client, MockNewsClient) else "naver"
 
     return NewsListOut(
         stock_code=stock_code,

@@ -2,11 +2,22 @@ import Link from "next/link";
 import AiBrief from "@/components/AiBrief";
 import AutoRefresh from "@/components/AutoRefresh";
 import CompanyFinancials from "@/components/CompanyFinancials";
+import DailyPriceTable from "@/components/DailyPriceTable";
 import DisclosureList from "@/components/DisclosureList";
+import EarningsTrend from "@/components/EarningsTrend";
 import NewsList from "@/components/NewsList";
+import PeerValuation from "@/components/PeerValuation";
 import RefreshButton from "@/components/RefreshButton";
 import StockChart from "@/components/StockChart";
-import { getCompanyFinancials, getDisclosures, getNews, getStock, getStockBrief } from "@/lib/api";
+import {
+  getCompanyFinancials,
+  getDisclosures,
+  getFinancialsHistory,
+  getNews,
+  getPeerValuation,
+  getStock,
+  getStockBrief,
+} from "@/lib/api";
 import { changeColorClass, formatChangeRate, formatKRW, formatTime } from "@/lib/format";
 
 type PageProps = {
@@ -24,13 +35,16 @@ async function safe<T>(promise: Promise<T>): Promise<T | null> {
 export default async function StockDetailPage({ params }: PageProps) {
   const { code } = await params;
 
-  const [stock, financials, disclosures, news, brief] = await Promise.all([
-    safe(getStock(code)),
-    safe(getCompanyFinancials(code)),
-    safe(getDisclosures(code, 10)),
-    safe(getNews(code, 10)),
-    safe(getStockBrief(code)),
-  ]);
+  const [stock, financials, disclosures, news, brief, financialsHistory, peerValuation] =
+    await Promise.all([
+      safe(getStock(code)),
+      safe(getCompanyFinancials(code)),
+      safe(getDisclosures(code, 10)),
+      safe(getNews(code, 10)),
+      safe(getStockBrief(code)),
+      safe(getFinancialsHistory(code)),
+      safe(getPeerValuation(code)),
+    ]);
 
   if (!stock) {
     return (
@@ -86,6 +100,8 @@ export default async function StockDetailPage({ params }: PageProps) {
 
       <StockChart stockCode={stock.stock_code} />
 
+      <DailyPriceTable stockCode={stock.stock_code} />
+
       {brief ? (
         <AiBrief title="AI STOCK BRIEF" data={brief} />
       ) : (
@@ -99,6 +115,22 @@ export default async function StockDetailPage({ params }: PageProps) {
       ) : (
         <p className="border border-red-900 p-4 text-sm text-red-400">
           재무제표 데이터를 불러올 수 없습니다 (N/A).
+        </p>
+      )}
+
+      {peerValuation ? (
+        <PeerValuation data={peerValuation} />
+      ) : (
+        <p className="border border-red-900 p-4 text-sm text-red-400">
+          업종 평균 대비 밸류에이션 데이터를 불러올 수 없습니다 (N/A).
+        </p>
+      )}
+
+      {financialsHistory ? (
+        <EarningsTrend data={financialsHistory} />
+      ) : (
+        <p className="border border-red-900 p-4 text-sm text-red-400">
+          분기별 실적 추이 데이터를 불러올 수 없습니다 (N/A).
         </p>
       )}
 

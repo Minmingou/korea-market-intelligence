@@ -1,7 +1,6 @@
-import pytest
-
 from app.clients import get_news_client
 from app.clients.mock_news_client import MockNewsClient
+from app.clients.naver_news_client import NaverNewsClient
 from app.config import settings
 
 
@@ -38,11 +37,8 @@ def test_factory_returns_mock_news_client_when_use_mock_news_true(monkeypatch):
     assert isinstance(get_news_client(), MockNewsClient)
 
 
-def test_factory_raises_when_use_mock_news_false():
-    # 실 뉴스 API 연동은 아직 구현되지 않았다 (STEP 8 범위: Mock만 우선 구현).
-    settings.use_mock_news = False
-    try:
-        with pytest.raises(NotImplementedError):
-            get_news_client()
-    finally:
-        settings.use_mock_news = True
+def test_factory_returns_naver_news_client_when_use_mock_news_false(monkeypatch):
+    monkeypatch.setattr(settings, "use_mock_news", False)
+    monkeypatch.setattr(settings, "naver_client_id", "test-id")
+    monkeypatch.setattr(settings, "naver_client_secret", "test-secret")
+    assert isinstance(get_news_client(), NaverNewsClient)

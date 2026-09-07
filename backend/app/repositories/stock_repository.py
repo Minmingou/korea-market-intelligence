@@ -41,7 +41,11 @@ class StockRepository:
 
             row.stock_name = raw.stock_name
             row.market = raw.market
-            row.sector = raw.sector
+            # Stock.sector 컬럼은 NOT NULL이지만 RawStock.sector는 movers(순위 API)
+            # 조회분처럼 정당하게 None일 수 있다(app/clients/market_data_client.py
+            # RawStock 주석 참고) - DB에 넣을 때는 "미분류"로 채워 무결성 제약
+            # 위반(500 에러)을 막는다.
+            row.sector = raw.sector or "미분류"
             row.price = raw.price
             row.change = raw.change
             row.change_rate = raw.change_rate

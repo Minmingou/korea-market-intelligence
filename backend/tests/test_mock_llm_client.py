@@ -123,6 +123,9 @@ def test_generate_stock_brief_with_financials_and_news():
         per=22.48,
         pbr=1.5,
         roe=12.3,
+        operating_margin=15.0,
+        net_margin=10.0,
+        debt_ratio=50.0,
         data_source="mock",
         updated_at=_NOW,
     )

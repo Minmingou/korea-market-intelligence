@@ -23,7 +23,12 @@ from pathlib import Path
 
 import httpx
 
-from app.clients.dart_data_client import DartDataClient, RawDisclosure, RawFinancials
+from app.clients.dart_data_client import (
+    DartDataClient,
+    RawDisclosure,
+    RawFinancials,
+    candidate_report_periods,
+)
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -43,6 +48,13 @@ _RETRY_BACKOFF_SEC = 0.5
 # 싱글플라이트 락과 같은 종류의 제약 — README "알려진 제약사항" 참고).
 _DISCLOSURE_CACHE_TTL = timedelta(minutes=3)
 _disclosure_cache: dict[tuple[str, int], tuple[datetime, list[RawDisclosure]]] = {}
+
+# 분기별 실적 추이(fetch_financials_history)는 종목당 최대 limit회의 재무제표 조회가
+# 필요해 disclosure보다 훨씬 비싸다. 재무제표는 하루 안에도 거의 바뀌지 않으므로
+# 공시 캐시보다 훨씬 긴 TTL을 둔다. 캐시 정책(모듈 전역/프로세스 단위)은 공시 캐시와
+# 동일한 이유(위 주석 참고)로 동일하게 설계했다.
+_HISTORY_CACHE_TTL = timedelta(minutes=30)
+_history_cache: dict[tuple[str, int], tuple[datetime, list[RawFinancials]]] = {}
 
 # DART 응답의 account_nm(계정명) -> 우리 필드명. 별칭은 IFRS 표기 차이를 흡수한다.
 _ACCOUNT_MAP = {
@@ -145,18 +157,7 @@ class DartClient(DartDataClient):
 
     @staticmethod
     def _candidate_periods(now: datetime) -> list[tuple[int, str]]:
-        # 당해년도 최근 분기부터 역순으로, 없으면 전년도 사업보고서/분기로 폴백한다.
-        this_year = now.year
-        return [
-            (this_year, "11014"),  # 3분기보고서
-            (this_year, "11012"),  # 반기보고서
-            (this_year, "11013"),  # 1분기보고서
-            (this_year - 1, "11011"),  # 전년도 사업보고서
-            (this_year - 1, "11014"),
-            (this_year - 1, "11012"),
-            (this_year - 1, "11013"),
-            (this_year - 2, "11011"),
-        ]
+        return candidate_report_periods(now)
 
     def _fetch_finstate_rows(self, corp_code: str, year: int, reprt_code: str) -> list[dict] | None:
         response = self._get_with_retry(
@@ -239,6 +240,35 @@ class DartClient(DartDataClient):
                 return parsed
 
         return None
+
+    def fetch_financials_history(self, stock_code: str, limit: int = 4) -> list[RawFinancials]:
+        cache_key = (stock_code, limit)
+        cached = _history_cache.get(cache_key)
+        now = datetime.now(timezone.utc)
+        if cached is not None and now - cached[0] < _HISTORY_CACHE_TTL:
+            return cached[1]
+
+        corp_code = self._corp_code_for(stock_code)
+        if corp_code is None:
+            logger.warning("DART corp_code를 찾을 수 없습니다: %s", stock_code)
+            return []
+
+        # 최신 -> 과거 순으로 성공한 분기를 limit개까지 모은 뒤, 차트에서 시간이
+        # 왼쪽에서 오른쪽으로 흐르도록 오래된 분기 -> 최신 분기 순으로 뒤집어 반환한다.
+        results: list[RawFinancials] = []
+        for year, reprt_code in candidate_report_periods(now):
+            if len(results) >= limit:
+                break
+            rows = self._fetch_finstate_rows(corp_code, year, reprt_code)
+            if rows is None:
+                continue
+            parsed = self._parse_financials(stock_code, year, reprt_code, rows, now)
+            if parsed is not None:
+                results.append(parsed)
+
+        ordered = list(reversed(results))
+        _history_cache[cache_key] = (now, ordered)
+        return ordered
 
     # ---- 공시 목록 --------------------------------------------------------------
 

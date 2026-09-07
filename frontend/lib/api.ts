@@ -2,6 +2,7 @@ import type {
   ChartPeriod,
   CompanyFinancials,
   DisclosureList,
+  FinancialsHistory,
   HealthStatus,
   Market,
   MarketBrief,
@@ -11,12 +12,14 @@ import type {
   MoverCategory,
   MoverCategoryResult,
   NewsList,
+  PeerValuation,
   ScreenerResult,
   Sector,
   Stock,
   StockBrief,
   StockChart,
   StockSearchResponse,
+  ValueScreenerResult,
 } from "@/types/market";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -120,6 +123,26 @@ export function getScreener(params?: { market?: Market; limit?: number }): Promi
   if (params?.limit) search.set("limit", String(params.limit));
   const qs = search.toString();
   return apiGet(`/api/screener${qs ? `?${qs}` : ""}`);
+}
+
+export function getValueScreener(params?: {
+  market?: Market;
+  limit?: number;
+}): Promise<ValueScreenerResult> {
+  const search = new URLSearchParams();
+  if (params?.market) search.set("market", params.market);
+  if (params?.limit) search.set("limit", String(params.limit));
+  const qs = search.toString();
+  return apiGet(`/api/screener/value${qs ? `?${qs}` : ""}`);
+}
+
+export function getFinancialsHistory(code: string, count?: number): Promise<FinancialsHistory> {
+  const qs = count ? `?count=${count}` : "";
+  return apiGet(`/api/stocks/${code}/financials/history${qs}`);
+}
+
+export function getPeerValuation(code: string): Promise<PeerValuation> {
+  return apiGet(`/api/stocks/${code}/financials/peer-comparison`);
 }
 
 export function getStockChart(

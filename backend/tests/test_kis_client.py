@@ -18,6 +18,7 @@ def _valid_quote_output(**overrides) -> dict:
         "acml_vol": "12345678",
         "acml_tr_pbmn": "876543210000",
         "hts_avls": "4200000",  # 억원 단위 -> 420조원
+        "bstp_kor_isnm": "반도체와반도체장비",
     }
     output.update(overrides)
     return output
@@ -468,6 +469,7 @@ def kis_client_with_rank_transport(monkeypatch, tmp_path):
                     "stck_lwpr": "95",
                     "stck_clpr": "105",
                     "acml_vol": "1000",
+                    "acml_tr_pbmn": "105000",
                 },
                 {
                     "stck_bsop_date": "20260904",
@@ -476,6 +478,7 @@ def kis_client_with_rank_transport(monkeypatch, tmp_path):
                     "stck_lwpr": "97",
                     "stck_clpr": "100",
                     "acml_vol": "800",
+                    "acml_tr_pbmn": "80000",
                 },
             ]
             return httpx.Response(
@@ -538,6 +541,41 @@ def test_fetch_daily_chart_returns_bars_sorted_ascending_by_date(kis_client_with
     assert [b.date for b in bars] == ["20260904", "20260905"]
     assert bars[1].close == 105.0
     assert bars[1].volume == 1000
+    assert bars[1].trading_value == 105000.0
+
+
+def test_fetch_daily_chart_trading_value_none_when_field_missing(monkeypatch, tmp_path):
+    # acml_tr_pbmn이 없는 응답도 있을 수 있다 - 이 경우 봉 전체를 버리지 않고
+    # trading_value만 None(N/A)으로 남겨야 한다.
+    monkeypatch.setattr(settings, "kis_app_key", "test-key")
+    monkeypatch.setattr(settings, "kis_app_secret", "test-secret")
+    monkeypatch.setattr("app.clients.kis_client._TOKEN_CACHE_PATH", tmp_path / "kis_token_cache.json")
+    monkeypatch.setattr("app.clients.kis_client.time.sleep", lambda _seconds: None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json={"access_token": "fake-token", "expires_in": 86400})
+        if request.url.path == "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice":
+            output2 = [
+                {
+                    "stck_bsop_date": "20260905",
+                    "stck_oprc": "100",
+                    "stck_hgpr": "110",
+                    "stck_lwpr": "95",
+                    "stck_clpr": "105",
+                    "acml_vol": "1000",
+                    # acml_tr_pbmn 필드 자체가 없음
+                }
+            ]
+            return httpx.Response(200, json={"rt_cd": "0", "msg1": "OK", "output1": {}, "output2": output2})
+        raise AssertionError(f"unexpected path: {request.url.path}")
+
+    client = KISClient()
+    client._http = httpx.Client(base_url=settings.kis_base_url, transport=httpx.MockTransport(handler))
+
+    bars = client.fetch_daily_chart("005930", "D", 1)
+    assert bars is not None
+    assert bars[0].trading_value is None
 
 
 def test_fetch_daily_chart_paginates_past_single_page_limit(monkeypatch, tmp_path):
@@ -646,4 +684,23 @@ def test_fetch_single_stock_fills_name_and_market_from_stock_master(kis_client_w
     # stock_master에 없는 코드라 코드 자체를 이름으로, KOSPI를 기본값으로 채운다.
     assert stock.stock_name == "999999"
     assert stock.market == "KOSPI"
-    assert stock.sector is None
+    # 업종은 stock_master가 아니라 inquire-price 응답 자체(bstp_kor_isnm)에서 채운다 -
+    # 유니버스 밖 종목(예: 검색으로 찾은 종목)도 실제 업종명이 있어야 한다.
+    assert stock.sector == "반도체와반도체장비"
+
+
+def test_fetch_single_stock_falls_back_to_uncategorized_when_sector_missing(
+    kis_client_with_rank_transport, monkeypatch
+):
+    # bstp_kor_isnm이 비어있는 응답도 있을 수 있다 - 이 경우 None이 아니라
+    # "미분류"로 채워야 한다(Stock.sector DB 컬럼이 NOT NULL이라 None을 그대로
+    # 넣으면 저장 시 500 에러가 난다 - 실제로 관찰된 버그).
+    original_fetch_quote = kis_client_with_rank_transport._fetch_quote
+    monkeypatch.setattr(
+        kis_client_with_rank_transport,
+        "_fetch_quote",
+        lambda code: {**original_fetch_quote(code), "bstp_kor_isnm": ""},
+    )
+    stock = kis_client_with_rank_transport.fetch_single_stock("999999")
+    assert stock is not None
+    assert stock.sector == "미분류"

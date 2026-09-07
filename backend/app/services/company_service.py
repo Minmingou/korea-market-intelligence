@@ -5,7 +5,10 @@ from sqlalchemy.orm import Session
 
 from app.analysis.financial_analysis import (
     compute_bps,
+    compute_debt_ratio,
     compute_eps,
+    compute_net_margin,
+    compute_operating_margin,
     compute_per,
     compute_pbr,
     compute_roe,
@@ -15,7 +18,13 @@ from app.clients import get_dart_client
 from app.clients.mock_dart_client import MockDartClient
 from app.repositories.financials_repository import FinancialsRepository
 from app.repositories.stock_repository import StockRepository
-from app.schemas.company import CompanyFinancialsOut, DisclosureListOut, DisclosureOut
+from app.schemas.company import (
+    CompanyFinancialsOut,
+    DisclosureListOut,
+    DisclosureOut,
+    FinancialsHistoryItemOut,
+    FinancialsHistoryOut,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +82,39 @@ def get_financials(db: Session, stock_code: str) -> CompanyFinancialsOut | None:
         per=compute_per(price, eps),
         pbr=compute_pbr(price, bps),
         roe=compute_roe(row.net_income, row.total_equity),
+        operating_margin=compute_operating_margin(row.operating_income, row.revenue),
+        net_margin=compute_net_margin(row.net_income, row.revenue),
+        debt_ratio=compute_debt_ratio(row.total_liabilities, row.total_equity),
         data_source=row.data_source,
         updated_at=row.updated_at,
+    )
+
+
+def get_financials_history(stock_code: str, count: int = 4) -> FinancialsHistoryOut:
+    client = get_dart_client()
+    try:
+        raw_items = client.fetch_financials_history(stock_code, limit=count)
+    except Exception:
+        logger.exception("DART 분기별 재무제표 조회에 실패했습니다: %s", stock_code)
+        raw_items = []
+
+    data_source = "mock" if isinstance(client, MockDartClient) else "dart"
+
+    return FinancialsHistoryOut(
+        stock_code=stock_code,
+        items=[
+            FinancialsHistoryItemOut(
+                bsns_year=item.bsns_year,
+                reprt_code=item.reprt_code,
+                report_label=_report_label(item.bsns_year, item.reprt_code),
+                revenue=item.revenue,
+                operating_income=item.operating_income,
+                net_income=item.net_income,
+            )
+            for item in raw_items
+        ],
+        data_source=data_source,
+        updated_at=datetime.now(timezone.utc),
     )
 
 

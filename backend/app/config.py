@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     dart_api_key: str | None = None
     dart_base_url: str = "https://opendart.fss.or.kr/api"
     news_api_key: str | None = None
+    # 네이버 검색(뉴스) API - developers.naver.com에서 애플리케이션을 등록하면
+    # 무료로 발급된다. 종목별 실시간 뉴스 조회에 쓴다.
+    naver_client_id: str | None = None
+    naver_client_secret: str | None = None
     llm_api_key: str | None = None
     # KIS 실시세 사용 시 이 초(seconds)가 지나면 갱신 대상으로 본다. Mock은 항상
     # "오늘 하루" 단위로 신선도를 판단하므로 이 값의 영향을 받지 않는다.

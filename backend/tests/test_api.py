@@ -196,7 +196,7 @@ def test_stock_chart_endpoint_returns_ohlcv_bars(client):
     assert body["period"] == "D"
     assert len(body["items"]) == 10
     bar = body["items"][0]
-    assert set(bar) == {"date", "open", "high", "low", "close", "volume"}
+    assert set(bar) == {"date", "open", "high", "low", "close", "volume", "trading_value"}
 
 
 def test_stock_chart_endpoint_unknown_stock_returns_404(client):
@@ -234,3 +234,68 @@ def test_screener_endpoint_respects_market_filter(client):
 def test_screener_endpoint_rejects_limit_over_max(client):
     res = client.get("/api/screener", params={"limit": 51})
     assert res.status_code == 422
+
+
+def test_value_screener_endpoint_returns_ranked_candidates(client):
+    res = client.get("/api/screener/value", params={"limit": 10})
+    assert res.status_code == 200
+    body = res.json()
+    assert set(body) == {"items", "candidate_pool_size", "updated_at", "data_source"}
+    assert body["candidate_pool_size"] > 0
+    assert len(body["items"]) <= 10
+
+    scores = [item["score"] for item in body["items"]]
+    assert scores == sorted(scores, reverse=True)
+    for item in body["items"]:
+        assert item["score"] >= 2  # 점수 2점 미만은 결과에서 제외되어야 함
+        assert len(item["signals"]) >= 2
+
+
+def test_value_screener_endpoint_respects_market_filter(client):
+    res = client.get("/api/screener/value", params={"market": "KOSDAQ", "limit": 10})
+    assert res.status_code == 200
+    for item in res.json()["items"]:
+        assert item["market"] == "KOSDAQ"
+
+
+def test_value_screener_endpoint_rejects_limit_over_max(client):
+    res = client.get("/api/screener/value", params={"limit": 51})
+    assert res.status_code == 422
+
+
+def test_financials_history_endpoint(client):
+    res = client.get("/api/stocks/005930/financials/history", params={"count": 4})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["stock_code"] == "005930"
+    assert body["data_source"] == "mock"
+    assert len(body["items"]) == 4
+    for item in body["items"]:
+        assert item["revenue"] is not None
+        assert "report_label" in item
+
+
+def test_financials_history_endpoint_unknown_stock_returns_empty_items(client):
+    res = client.get("/api/stocks/999999/financials/history")
+    assert res.status_code == 200
+    assert res.json()["items"] == []
+
+
+def test_financials_history_endpoint_rejects_count_out_of_range(client):
+    res = client.get("/api/stocks/005930/financials/history", params={"count": 1})
+    assert res.status_code == 422
+
+
+def test_peer_valuation_endpoint(client):
+    res = client.get("/api/stocks/005930/financials/peer-comparison")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["stock_code"] == "005930"
+    assert body["sector"]
+    assert body["peer_count"] > 0
+    assert body["per"] is not None
+
+
+def test_peer_valuation_endpoint_unknown_stock_returns_404(client):
+    res = client.get("/api/stocks/999999/financials/peer-comparison")
+    assert res.status_code == 404

@@ -128,6 +128,17 @@ class MockMarketDataClient(MarketDataClient):
 
     _PERIOD_STEP_DAYS = {"D": 1, "W": 7, "M": 30, "Y": 365}
 
+    @staticmethod
+    def _business_days_back(end: datetime, count: int) -> list[datetime]:
+        # 실제 KRX 거래일과 마찬가지로 토/일은 건너뛴다(공휴일까지는 반영하지 않음).
+        dates: list[datetime] = []
+        cursor = end
+        while len(dates) < count:
+            if cursor.weekday() < 5:
+                dates.append(cursor)
+            cursor -= timedelta(days=1)
+        return list(reversed(dates))
+
     def fetch_daily_chart(self, stock_code: str, period: str, count: int) -> list[RawDailyBar] | None:
         stock = next((s for s in self.fetch_stocks() if s.stock_code == stock_code), None)
         if stock is None:
@@ -141,10 +152,13 @@ class MockMarketDataClient(MarketDataClient):
         # (Mock 데이터는 재현 가능해야 새로고침할 때마다 차트가 요동치지 않는다).
         rng = random.Random(f"{stock_code}-{period_code}-chart")
         today = datetime.now(timezone.utc)
+        # 일봉은 주말을 건너뛰어야 실제 거래일 기준(RECENT NEWS/PRICE TABLE 등)과
+        # 어긋나지 않는다 - 주/월/년봉은 애초에 매일 단위가 아니므로 그대로 둔다.
+        dates = self._business_days_back(today, count) if period_code == "D" else None
         price = stock.price
         bars: list[RawDailyBar] = []
         for i in range(count):
-            date = today - timedelta(days=step_days * (count - 1 - i))
+            date = dates[i] if dates is not None else today - timedelta(days=step_days * (count - 1 - i))
             pct = rng.gauss(0, 1.8)
             open_price = price
             close_price = round(open_price * (1 + pct / 100) / 10) * 10
@@ -159,6 +173,7 @@ class MockMarketDataClient(MarketDataClient):
                     low=round(low),
                     close=round(close_price),
                     volume=volume,
+                    trading_value=round(close_price * volume, 2),
                 )
             )
             price = close_price
@@ -172,6 +187,7 @@ class MockMarketDataClient(MarketDataClient):
             low=min(last.low, stock.price),
             close=stock.price,
             volume=last.volume,
+            trading_value=round(stock.price * last.volume, 2),
         )
         return bars
 

@@ -3,9 +3,14 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.brief import StockBriefOut
-from app.schemas.company import CompanyFinancialsOut, DisclosureListOut
+from app.schemas.company import (
+    CompanyFinancialsOut,
+    DisclosureListOut,
+    FinancialsHistoryOut,
+    PeerValuationOut,
+)
 from app.schemas.news import NewsListOut
-from app.services import brief_service, company_service, news_service
+from app.services import brief_service, company_service, news_service, peer_valuation_service
 
 router = APIRouter(prefix="/api/stocks", tags=["company"])
 
@@ -21,6 +26,31 @@ def get_financials(stock_code: str, db: Session = Depends(get_db)) -> CompanyFin
     if financials is None:
         raise HTTPException(status_code=404, detail="Financials not found")
     return financials
+
+
+@router.get(
+    "/{stock_code}/financials/history",
+    response_model=FinancialsHistoryOut,
+    summary="분기별 실적 추이",
+    description="최근 N개 분기의 매출액/영업이익/당기순이익을 오래된 분기 -> 최신 분기 순으로 반환한다.",
+)
+def get_financials_history(
+    stock_code: str, count: int = Query(4, ge=2, le=8)
+) -> FinancialsHistoryOut:
+    return company_service.get_financials_history(stock_code, count=count)
+
+
+@router.get(
+    "/{stock_code}/financials/peer-comparison",
+    response_model=PeerValuationOut,
+    summary="업종 평균 대비 밸류에이션",
+    description="같은 업종(KIS 세부 분류) 내 다른 종목들과 PER/PBR/ROE 평균을 비교한다.",
+)
+def get_peer_valuation(stock_code: str, db: Session = Depends(get_db)) -> PeerValuationOut:
+    result = peer_valuation_service.get_peer_valuation(db, stock_code)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Peer valuation not available")
+    return result
 
 
 @router.get(

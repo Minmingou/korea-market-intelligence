@@ -128,6 +128,9 @@ export interface CompanyFinancials {
   per: number | null;
   pbr: number | null;
   roe: number | null;
+  operating_margin: number | null;
+  net_margin: number | null;
+  debt_ratio: number | null;
   data_source: string;
   updated_at: string;
 }
@@ -207,6 +210,7 @@ export interface DailyBar {
   low: number;
   close: number;
   volume: number;
+  trading_value: number | null;
 }
 
 export type ChartPeriod = "D" | "W" | "M" | "Y";
@@ -240,4 +244,56 @@ export interface ScreenerResult {
   candidate_pool_size: number;
   updated_at: string;
   data_source: string;
+}
+
+export interface ValueScreenerCandidate {
+  stock_code: string;
+  stock_name: string;
+  market: Market;
+  price: number;
+  change_rate: number;
+  per: number | null;
+  pbr: number | null;
+  roe: number | null;
+  debt_ratio: number | null;
+  operating_margin: number | null;
+  score: number;
+  signals: string[];
+}
+
+export interface ValueScreenerResult {
+  items: ValueScreenerCandidate[];
+  candidate_pool_size: number;
+  updated_at: string;
+  data_source: string;
+}
+
+export interface FinancialsHistoryItem {
+  bsns_year: string;
+  reprt_code: string;
+  report_label: string;
+  revenue: number | null;
+  operating_income: number | null;
+  net_income: number | null;
+}
+
+export interface FinancialsHistory {
+  stock_code: string;
+  items: FinancialsHistoryItem[];
+  data_source: string;
+  updated_at: string;
+}
+
+export interface PeerValuation {
+  stock_code: string;
+  sector: string;
+  peer_count: number;
+  per: number | null;
+  pbr: number | null;
+  roe: number | null;
+  peer_avg_per: number | null;
+  peer_avg_pbr: number | null;
+  peer_avg_roe: number | null;
+  data_source: string;
+  updated_at: string;
 }

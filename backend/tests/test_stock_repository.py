@@ -66,3 +66,14 @@ def test_is_fresh_since_false_when_updated_before_cutoff(repo):
     repo.upsert_many([_raw_stock(now - timedelta(seconds=60))])
     cutoff = now - timedelta(seconds=30)
     assert repo.is_fresh_since(cutoff) is False
+
+
+def test_upsert_many_falls_back_to_uncategorized_when_sector_is_none(repo):
+    # Stock.sector 컬럼은 NOT NULL이지만 RawStock.sector는 movers(순위 API) 조회분처럼
+    # 정당하게 None일 수 있다 - 그대로 넣으면 무결성 제약 위반(500 에러)이 났던 버그다.
+    raw = _raw_stock(datetime.now(timezone.utc))
+    raw.sector = None
+
+    repo.upsert_many([raw])  # 예외 없이 저장되어야 한다
+
+    assert repo.get_by_code("005930").sector == "미분류"

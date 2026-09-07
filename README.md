@@ -87,14 +87,15 @@ flowchart LR
   기준이 다르다(STEP 4/10 개선, 위 "시세 갱신 정책" 참고). Repository/Client는 이 판단을 모르고
   각자의 역할(DB 접근/외부 API 호출)만 한다.
 - **Mock ↔ 실제 전환은 팩토리 하나로 끝난다**: `USE_MOCK_DATA`/`USE_MOCK_DART`/`USE_MOCK_NEWS`/
-  `USE_MOCK_LLM` 각각이 독립적으로 구현체를 고른다. 뉴스/LLM은 아직 Mock만 구현되어 있어
-  `false`로 바꾸면 `NotImplementedError`가 난다 (의도된 동작 — STEP 8/9 범위 밖).
+  `USE_MOCK_LLM` 각각이 독립적으로 구현체를 고른다. `USE_MOCK_NEWS=false` + `NAVER_CLIENT_ID`/
+  `NAVER_CLIENT_SECRET`를 채우면 `NaverNewsClient`(네이버 뉴스 검색 API)로 전환된다. LLM은
+  아직 Mock만 구현되어 있어 `false`로 바꾸면 `NotImplementedError`가 난다(STEP 9 범위 밖).
 
 ## 알려진 제약사항
 
-- **뉴스/AI 브리핑은 Mock까지만 구현됨**: `USE_MOCK_NEWS`/`USE_MOCK_LLM`을 `false`로 바꾸면
-  즉시 `NotImplementedError`가 발생한다. 실 API 연동은 어떤 뉴스/LLM 공급자를 쓸지 정해지지
-  않아 의도적으로 이후 STEP으로 미뤘다.
+- **AI 브리핑은 Mock까지만 구현됨**: `USE_MOCK_LLM`을 `false`로 바꾸면 즉시
+  `NotImplementedError`가 발생한다. 어떤 LLM API를 쓸지 정해지지 않아 의도적으로 이후
+  STEP으로 미뤘다.
 - **KOSPI/KOSDAQ 지수는 평소엔 KIS 공식 지수 API(`inquire-index-price`)를 쓰지만**
   (`data_source=kis`), 이 API 호출이 실패하는 순간에 한해 종목별 시가총액 가중평균으로 만든
   자체 추정치로 폴백한다(`data_source=kis_estimated`) — 폴백이 걸렸다면 한국거래소가
@@ -267,23 +268,28 @@ API 두 개를 마저 연동했다.
   연도/보고서코드 폴백, 공시 파싱(정상/013)을 네트워크 없이 검증한다. `conftest.py`는
   `USE_MOCK_DART` 값도 항상 `true`로 강제해 테스트가 실제 DART API를 호출하지 않도록 한다.
 
-## 뉴스 연동 (STEP 8)
+## 뉴스 연동 (STEP 8, STEP 17에서 실 연동 추가)
 
-- 종목 상세 페이지에 해당 종목 관련 최근 뉴스 목록을 추가했다. **이번 STEP 범위는 Mock 구현까지다**
-  — `config.py`에는 `NEWS_API_KEY`만 있고 어떤 뉴스 공급자를 쓸지 아직 정해지지 않아, 실제 연동은
-  이후 STEP으로 미루기로 했다 (사용자 확인 완료).
-  `NewsDataClient` 인터페이스(`fetch_news`)만 KIS/DART와 동일한 패턴으로 정의해두고, `MockNewsClient`
-  구현체만 우선 붙였다. `USE_MOCK_NEWS=false`로 바꾸면 `get_news_client()`가 `NotImplementedError`를
-  던진다 — 존재하지 않는 실제 클라이언트를 조용히 흉내 내지 않기 위함이다.
-- 재무제표(날짜 무관, 종목코드로만 시드)와 달리 뉴스는 매일 새로 나오는 데이터이므로,
+- 종목 상세 페이지에 해당 종목 관련 최근 뉴스 목록을 추가했다. `NewsDataClient` 인터페이스
+  (`fetch_news`)를 KIS/DART와 동일한 패턴으로 정의하고, `MockNewsClient`와 실제 구현체인
+  `NaverNewsClient`(네이버 뉴스 검색 API, `app/clients/naver_news_client.py`)가 이를 공유한다.
+  `USE_MOCK_NEWS=false` + `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`(developers.naver.com에서
+  무료 발급)를 채우면 실제 뉴스로 전환된다.
+- `NaverNewsClient`는 종목코드를 그대로 검색어로 쓸 수 없으므로(네이버 뉴스 검색은 자유
+  텍스트 쿼리) `stock_master`(전종목 코드/종목명 마스터)에서 종목명을 찾아 그 이름으로
+  검색한다. 응답의 title은 검색어를 `<b>` 태그로 감싸고 HTML 엔티티로 이스케이프하므로
+  화면에 노출하기 전에 벗겨낸다. 언론사명은 API가 별도로 주지 않아 "네이버뉴스"로 표시한다.
+- 재무제표(날짜 무관, 종목코드로만 시드)와 달리 Mock 뉴스는 매일 새로 나오는 데이터이므로,
   `MockNewsClient`는 `MockMarketDataClient`와 동일하게 종목코드 + 오늘 날짜로 시드를 섞는다 —
   같은 날 여러 번 조회하면 동일한 결과, 날짜가 바뀌면 헤드라인 구성도 바뀐다.
-- 공시와 동일한 이유로 DB에 영속화하지 않고 요청마다 즉시 생성한다. Mock 헤드라인은 종목명/업종을
-  섞은 템플릿 풀에서 뽑으며, 실제로 존재하지 않는 기사 URL을 지어내지 않기 위해 `url`은 항상
-  `null`이다 — 프론트엔드는 이 경우 링크 없이 텍스트만 표시한다 (`DisclosureList`와 동일 패턴).
-- 테스트(`tests/test_mock_news_client.py`)는 알려진/알 수 없는 종목코드, count 제한, 같은 날
-  안정성(같은 시드 재현), 팩토리의 Mock/미구현 분기를 검증한다. `conftest.py`는 `USE_MOCK_NEWS`도
-  항상 `true`로 강제한다.
+- 공시와 동일한 이유로 DB에 영속화하지 않고 요청마다 즉시 생성/조회한다. Mock 헤드라인은
+  종목명/업종을 섞은 템플릿 풀에서 뽑으며, 실제로 존재하지 않는 기사 URL을 지어내지 않기
+  위해 `url`은 항상 `null`이다 — 프론트엔드는 이 경우 링크 없이 텍스트만 표시한다
+  (`DisclosureList`와 동일 패턴).
+- 테스트(`tests/test_mock_news_client.py`, `tests/test_naver_news_client.py`)는 알려진/알 수
+  없는 종목코드, count 제한, 같은 날 안정성(같은 시드 재현), HTML 태그/엔티티 제거, 팩토리의
+  Mock/실제 분기, 자격증명 누락 시 예외를 검증한다. `conftest.py`는 `USE_MOCK_NEWS`도 기본
+  `true`로 강제해 테스트가 실제 네이버 API를 호출하지 않도록 한다.
 
 ## AI Market Brief (STEP 9)
 
@@ -489,6 +495,43 @@ API 오류 UI" 다섯 항목을 기준으로 보면 부족했다.
 쓰인 `text-neutral-500`/`600`을 `300`/`400`으로 한 단계씩 올려 검은 배경 대비 대비율을
 높였다.
 
+## 밸류 스크리너 + 업종 비교 밸류에이션 + 분기 실적 추이 (사용자 피드백 반영)
+
+사용자가 대시보드를 훑어보고 "전체적으로 빈 공간이 많다"고 지적해, 이미 갖고 있는 KIS/DART
+데이터로 채울 수 있는 지표 후보를 제안한 뒤 그중 두 가지를 골라 구현했다: (1) 기존 MY
+SCREENER(수급+기술적) 옆에 나란히 둘 밸류/퀄리티 스크리너, (2) 종목 상세의 재무 섹션을
+보강하는 업종 평균 대비 밸류에이션 + 분기별 실적 추이.
+
+- **밸류/퀄리티 스크리너(`GET /api/screener/value`)**: 수급 스크리너(`screener_service`)는
+  시세만으로 1단계 필터링이 가능하지만, 저평가/우량 여부는 재무제표(DART)를 봐야 알 수 있어
+  1단계 필터가 없다 - `market` 필터가 좁히는 범위 안의 전 종목에 대해
+  `company_service.get_financials()`를 호출한다. 이 함수는 종목당 하루 1회만 실제로 DART를
+  조회하고(`FinancialsRepository`의 신선도 체크) 그 외에는 DB 캐시를 쓰므로, 당일 첫 호출만
+  느리고 이후 호출은 빠르다. PER 12배 미만·PBR 1.2배 미만·ROE 10%↑·영업이익률 10%↑·부채비율
+  100% 미만 5가지 신호를 조합해 0~5점으로 점수를 매기고(`value_screener_analysis.
+  score_value_candidate`), 값을 알 수 없는 지표는 조건 미달이 아니라 그냥 건너뛴다(N/A ≠
+  조건 미충족). 2점 이상만 노출한다.
+- **업종 평균 대비 밸류에이션(`GET /api/stocks/{code}/financials/peer-comparison`)**: 같은
+  업종(KIS 세부 분류, 예: "반도체") 내 다른 종목들과 PER/PBR/ROE 평균을 비교한다
+  (`peer_valuation_service`). 종목 상세 페이지를 열 때마다 호출되므로 스크리너처럼 우주
+  전체를 훑을 수는 없어, 동료 종목 수를 15개로 제한해 DART 호출 비용을 억제한다. 업종이
+  "미분류"이거나 재무제표가 없으면 404를 반환한다(지어내지 않음).
+- **분기별 실적 추이(`GET /api/stocks/{code}/financials/history?count=`)**: 기존
+  `DartClient.fetch_financials`는 최신 분기 하나만 반환했다. 후보 보고서 시점 목록
+  (`candidate_report_periods`, 기존 `DartClient._candidate_periods`를 모듈 함수로 추출해
+  실 클라이언트와 Mock 클라이언트가 공유)을 그대로 여러 번 순회해 성공한 분기를 최대
+  `count`개까지 모으고, 시간이 왼쪽에서 오른쪽으로 흐르도록 오래된 분기 -> 최신 분기 순으로
+  뒤집어 반환하는 `fetch_financials_history`를 새로 추가했다. 종목당 최대 `count`회의
+  재무제표 조회가 필요해 공시 캐시(3분)보다 긴 30분 TTL의 모듈 전역 캐시를 둔다. 프론트엔드는
+  `EarningsTrend.tsx`에서 recharts `BarChart`로 매출액/영업이익을 그린다.
+- 프론트엔드: `ValueScreener.tsx`(대시보드, `Screener` 옆 2단 배치), `PeerValuation.tsx`·
+  `EarningsTrend.tsx`(종목 상세, `CompanyFinancials` 다음)를 신설했다.
+- 테스트: `value_screener_analysis`/`value_screener_service`/`peer_valuation_service` 단위
+  테스트, `fetch_financials_history`(실 클라이언트 순서·캐싱, Mock 클라이언트 안정성) 테스트,
+  API 엔드포인트 통합 테스트(총 25개 추가, Backend 전체 213개)를 추가했다. 프론트엔드는
+  `ValueScreener.test.tsx`/`PeerValuation.test.tsx`/`EarningsTrend.test.tsx`를 신설하고
+  `page.test.tsx`를 갱신했다(Frontend 전체 57개).
+
 ## API 엔드포인트
 
 | Method | Path | 설명 |
@@ -503,11 +546,15 @@ API 오류 UI" 다섯 항목을 기준으로 보면 부족했다.
 | GET | `/api/sectors?market=&sort_by=` | 업종별 집계 |
 | GET | `/api/flows?market=&top_n=` | 투자자별 자금 흐름 (업종/종목 TOP N) |
 | GET | `/api/stocks/{code}/financials` | 기업 재무제표 + PER/PBR/ROE/EPS/BPS (STEP 7) |
+| GET | `/api/stocks/{code}/financials/history?count=` | 최근 N개 분기 매출액/영업이익/당기순이익 추이 |
+| GET | `/api/stocks/{code}/financials/peer-comparison` | 같은 업종 내 PER/PBR/ROE 평균 비교 |
 | GET | `/api/stocks/{code}/disclosures?count=` | 최근 공시 목록 (STEP 7) |
-| GET | `/api/stocks/{code}/news?count=` | 종목 관련 최근 뉴스 (STEP 8, 현재 Mock만 구현) |
+| GET | `/api/stocks/{code}/news?count=` | 종목 관련 최근 뉴스 (STEP 8, STEP 17에서 네이버 뉴스 실연동) |
 | GET | `/api/market/brief` | 시장 전체 AI 브리핑 (STEP 9, 현재 Mock만 구현) |
 | GET | `/api/stocks/{code}/brief` | 종목별 AI 브리핑 (STEP 9, 현재 Mock만 구현) |
 | GET | `/api/events?count=` | 시가총액 상위 종목들의 최근 공시 모음 (DART Events) |
+| GET | `/api/screener?market=&limit=` | 수급+기술적 스크리너 |
+| GET | `/api/screener/value?market=&limit=` | 밸류/퀄리티 스크리너 |
 
 ## 실행 방법
 
@@ -551,7 +598,8 @@ DART 클라이언트 테스트(corp_code 매핑/재무제표 폴백/공시 파�
 처리/조사 선택), Repository/Service 레이어 테스트(데이터 신선도 판단, 싱글플라이트 락,
 백그라운드 갱신 분기), DART Events 집계 테스트(정렬/개수 제한/부분 실패 처리), 전체 시장
 Movers/차트/단건조회(`fetch_movers`/`fetch_daily_chart`/`fetch_single_stock`)와 종목 마스터
-파싱/검색 테스트를 포함한다 (총 154개, 전부 네트워크 Mock).
+파싱/검색 테스트, 수급/밸류 스크리너와 업종 비교 밸류에이션/분기별 실적 추이 테스트를
+포함한다 (총 213개, 전부 네트워크 Mock).
 
 ```bash
 cd frontend
@@ -559,8 +607,9 @@ npm test
 ```
 
 순수 유틸(`lib/format.ts`), 클라이언트 컴포넌트(`RefreshButton`, `AutoRefresh`, `MarketEvents`,
-`MarketMap`, `SearchBar`), Dashboard 조립 로직(`app/page.tsx`, API 부분 실패 시 섹션별 폴백
-포함)을 Vitest + Testing Library로 검증한다 (총 39개).
+`MarketMap`, `SearchBar`, `DailyPriceTable`), 서버 컴포넌트(`ValueScreener`, `PeerValuation`,
+`EarningsTrend`), Dashboard 조립 로직(`app/page.tsx`, API 부분 실패 시 섹션별 폴백 포함)을
+Vitest + Testing Library로 검증한다 (총 57개).
 
 ## 환경변수
 
@@ -575,8 +624,10 @@ KIS_REFRESH_INTERVAL_SECONDS=30   # 실 KIS 사용 시 이 초가 지나면 백�
 DART_API_KEY=
 DART_BASE_URL=https://opendart.fss.or.kr/api
 USE_MOCK_DART=true   # false로 바꾸면 DartClient로 실제 재무제표/공시를 조회한다
+NAVER_CLIENT_ID=
+NAVER_CLIENT_SECRET=
 NEWS_API_KEY=
-USE_MOCK_NEWS=true   # 현재 Mock만 구현됨 (false로 바꾸면 NotImplementedError, STEP 8 범위 밖)
+USE_MOCK_NEWS=true   # false + NAVER_CLIENT_ID/SECRET로 바꾸면 NaverNewsClient로 실제 뉴스를 조회한다
 LLM_API_KEY=
 USE_MOCK_LLM=true    # 현재 Mock만 구현됨 (false로 바꾸면 NotImplementedError, STEP 9 범위 밖)
 DATABASE_URL=sqlite:///../data/korea_market.db

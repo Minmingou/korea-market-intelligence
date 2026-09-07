@@ -63,9 +63,10 @@ function stock(overrides: Partial<Stock>): Stock {
 }
 
 const stocks: Stock[] = [
-  stock({ stock_code: "005930", stock_name: "삼성전자", market: "KOSPI" }),
-  stock({ stock_code: "000660", stock_name: "SK하이닉스", market: "KOSPI" }),
-  stock({ stock_code: "247540", stock_name: "에코프로비엠", market: "KOSDAQ" }),
+  stock({ stock_code: "005930", stock_name: "삼성전자", market: "KOSPI", sector: "반도체", change_rate: 2.0 }),
+  stock({ stock_code: "000660", stock_name: "SK하이닉스", market: "KOSPI", sector: "반도체", change_rate: 1.0 }),
+  stock({ stock_code: "105560", stock_name: "KB금융", market: "KOSPI", sector: "금융", change_rate: -1.5 }),
+  stock({ stock_code: "247540", stock_name: "에코프로비엠", market: "KOSDAQ", sector: "2차전지" }),
 ];
 
 describe("MarketMap", () => {
@@ -117,5 +118,31 @@ describe("MarketMap", () => {
     fireEvent.click(screen.getByRole("button", { name: "삼성전자" }));
 
     expect(push).toHaveBeenCalledWith("/stocks/005930");
+  });
+
+  it("switches to 업종별 view and groups stocks into broad categories", () => {
+    render(<MarketMap stocks={stocks} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "업종별" }));
+
+    expect(screen.getByRole("button", { name: "반도체" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "금융" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "삼성전자" })).not.toBeInTheDocument();
+  });
+
+  it("filters to a category's stocks when its 업종 tile is clicked", () => {
+    render(<MarketMap stocks={stocks} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "업종별" }));
+    fireEvent.click(screen.getByRole("button", { name: "반도체" }));
+
+    expect(screen.getByRole("button", { name: "삼성전자" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "SK하이닉스" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "KB금융" })).not.toBeInTheDocument();
+    expect(screen.getByText("업종: 반도체")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "필터 해제" }));
+
+    expect(screen.getByRole("button", { name: "KB금융" })).toBeInTheDocument();
   });
 });

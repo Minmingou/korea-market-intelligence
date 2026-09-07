@@ -169,7 +169,15 @@ def get_daily_chart(stock_code: str, period: str = "D", count: int = 100) -> Sto
         stock_code=stock_code,
         period=period,
         items=[
-            DailyBarOut(date=b.date, open=b.open, high=b.high, low=b.low, close=b.close, volume=b.volume)
+            DailyBarOut(
+                date=b.date,
+                open=b.open,
+                high=b.high,
+                low=b.low,
+                close=b.close,
+                volume=b.volume,
+                trading_value=b.trading_value,
+            )
             for b in bars
         ],
         data_source="mock" if settings.use_mock_data else "kis",

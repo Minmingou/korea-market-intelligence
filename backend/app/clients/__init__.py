@@ -7,6 +7,7 @@ from app.clients.mock_dart_client import MockDartClient
 from app.clients.mock_llm_client import MockLLMClient
 from app.clients.mock_market_client import MockMarketDataClient
 from app.clients.mock_news_client import MockNewsClient
+from app.clients.naver_news_client import NaverNewsClient
 from app.clients.news_data_client import NewsDataClient
 from app.config import settings
 
@@ -29,8 +30,7 @@ def get_news_client() -> NewsDataClient:
     if settings.use_mock_news:
         return MockNewsClient()
 
-    # 실 뉴스 API 연동은 아직 구현되지 않았다 (STEP 8 범위: Mock만 우선 구현).
-    raise NotImplementedError("실제 뉴스 API 연동이 아직 구현되지 않았습니다")
+    return NaverNewsClient()
 
 
 def get_llm_client() -> BriefDataClient:

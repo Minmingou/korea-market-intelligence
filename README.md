@@ -93,12 +93,14 @@ flowchart LR
 - **뉴스/AI 브리핑은 Mock까지만 구현됨**: `USE_MOCK_NEWS`/`USE_MOCK_LLM`을 `false`로 바꾸면
   즉시 `NotImplementedError`가 발생한다. 실 API 연동은 어떤 뉴스/LLM 공급자를 쓸지 정해지지
   않아 의도적으로 이후 STEP으로 미뤘다.
-- **KOSPI/KOSDAQ 지수는 KIS의 공식 지수 API가 아니라 자체 추정치**다(`data_source=kis_estimated`).
-  실 KIS 모드에서도 종목별 시가총액을 집계해 근사한 값이며, 한국거래소가 발표하는 공식 지수와는
-  다를 수 있다.
+- **KOSPI/KOSDAQ 지수는 평소엔 KIS 공식 지수 API(`inquire-index-price`)를 쓰지만**
+  (`data_source=kis`), 이 API 호출이 실패하는 순간에 한해 종목별 시가총액 가중평균으로 만든
+  자체 추정치로 폴백한다(`data_source=kis_estimated`) — 폴백이 걸렸다면 한국거래소가
+  발표하는 공식 지수와 다를 수 있다.
 - **KIS가 제공하지 않는 필드는 `N/A`(null)로 남긴다** — 예: 실 KIS 현재가 조회 응답에는 20일
-  평균거래량과 투자자별(외국인/기관/개인) 순매수가 없다. 값을 추정해서 채우지 않는다
-  (개발 원칙 참고).
+  평균거래량이 없다. 값을 추정해서 채우지 않는다(개발 원칙 참고). 외국인/기관/개인 순매수는
+  별도 API(`inquire-investor`)로 채우지만, 이 API 자체가 실패하면(예: 5xx 재시도 소진) 해당
+  종목만 N/A로 남는다.
 - **DB는 SQLite 단일 파일**이며 동시 쓰기 내성이 낮다. `market_service`의 싱글플라이트 락과
   `DartClient`의 공시 캐시(`_disclosure_cache`)는 둘 다 프로세스 메모리에 있는 상태라, 여러
   워커/인스턴스로 수평 확장하면 공유되지 않고 워커마다 따로 생긴다 — 프로덕션 확장 시
@@ -146,19 +148,15 @@ flowchart LR
   종목만 이번 갱신에서 건너뛴다(전체 서비스는 중단되지 않음).
 - OAuth2 액세스 토큰은 발급 빈도 제한(분당 1회 수준)을 피하기 위해 `data/kis_token_cache.json`에
   캐시하고, 만료 10분 전부터 재발급한다.
-- **KIS 현재가 조회 응답에는 20일 평균거래량과 외국인/기관/개인 순매수가 포함되지 않는다.**
-  이 값을 추정해서 채우면 "데이터가 없으면 N/A로 표시하고 사실을 지어내지 않는다"는 개발
-  원칙을 어기게 되므로, `RawStock`/`RawMarketIndex`에서 해당 필드를 `None`으로 남기고
-  DB 컬럼도 nullable로 바꿨다. 그 결과:
-  - Market Movers의 `거래량 급증`/`외국인 순매수`/`기관 순매수` 카테고리는 KIS 데이터일 때
-    항목이 비어 있다(순위를 지어내지 않음).
-  - Sector/Money Flow의 투자자 순매수 합계·TOP 목록도 N/A 또는 빈 목록으로 표시된다.
-  - 프론트엔드는 `lib/format.ts`의 `formatKRW`/`changeColorClass`가 `null`을 받으면 "N/A"·
-    중립색으로 표시하도록 확장했다.
-  - (추후 KIS의 종목별 투자자매매동향 API 응답 형식을 실제로 검증한 뒤 별도로 채워 넣을 수 있다.)
-- KOSPI/KOSDAQ 지수는 KIS가 공식 지수를 별도 API로 제공하지만, 이번 STEP에서는 Mock과 동일하게
-  방금 조회한 종목들의 시가총액 가중평균 등락률로 추정한다(`data_source: "kis_estimated"`).
-  실제 지수 산출 방식과 다른 자체 추정치임을 명확히 하기 위해 데이터소스 값을 구분해두었다.
+- **KIS 현재가 조회 응답에는 20일 평균거래량이 포함되지 않는다.** 이 값을 추정해서 채우면
+  "데이터가 없으면 N/A로 표시하고 사실을 지어내지 않는다"는 개발 원칙을 어기게 되므로,
+  `RawStock`에서 `avg_volume_20d`를 `None`으로 남긴다 — 그 결과 Market Movers의
+  `거래량 급증` 카테고리는 KIS 데이터일 때 비어 있다(순위를 지어내지 않음). 외국인/기관/
+  개인 순매수는 원래 이 자리에도 N/A로 뒀었지만, 이후 별도 API로 채웠다 — 아래 "실제
+  지수·투자자매매동향 연동" 참고.
+- KOSPI/KOSDAQ 지수는 이제 KIS가 제공하는 공식 지수 조회 API(`inquire-index-price`)를 우선
+  사용한다(`data_source: "kis"`). 이 API 호출이 실패할 때만 방금 조회한 종목들의 시가총액
+  가중평균 등락률로 추정한 값을 폴백으로 쓴다(`data_source: "kis_estimated"`) — 아래 참고.
 - 테스트(`tests/test_kis_client.py`)는 `httpx.MockTransport`로 실제 네트워크 호출 없이
   토큰 발급/시세 파싱/재시도/N/A 처리를 검증한다. `tests/conftest.py`는 로컬 `.env`의
   `USE_MOCK_DATA` 값과 무관하게 테스트를 항상 Mock으로 강제해, 실제 API 키가 설정된
@@ -189,9 +187,52 @@ STEP 4를 처음 붙였을 때는 `refresh_if_needed()`가 "오늘 날짜 데이
   허용한다 — 락을 못 잡은 요청은 그냥 기존 데이터로 응답한다.
 - 실제 KIS 키로 확인한 결과: `/api/stocks/005930` 요청은 캐시가 오래된 상태에서도
   51ms만에 기존 데이터로 응답했고, 이후 첫 갱신 요청이 백그라운드에서 삼성전자
-  270,000원(+5.68%)을 정상적으로 받아와 `data_source: "kis"`로 갱신했다. 지수는
-  `data_source: "kis_estimated"`로, 프론트엔드 라벨은 "MOCK DATA"에서 "실시간"으로
-  자동 전환된다.
+  270,000원(+5.68%)을 정상적으로 받아와 `data_source: "kis"`로 갱신했다. 프론트엔드
+  라벨은 "MOCK DATA"에서 "실시간"으로 자동 전환된다.
+
+### 실제 지수·투자자매매동향 연동 (로드맵 완료 기준 보완)
+
+STEP 4를 처음 붙였을 때는 KOSPI/KOSDAQ 지수를 자체 가중평균으로 추정했고
+(`data_source: "kis_estimated"`), 외국인/기관/개인 순매수는 KIS 현재가 조회 응답에
+없어서 항상 N/A였다. 대시보드를 실 KIS 모드로 띄워보니 지수가 실제 값과 크게 어긋나고
+순매수 카드가 전부 비어 있는 게 눈에 띄어(사용자 확인), KIS가 별도로 제공하는 공식
+API 두 개를 마저 연동했다.
+
+- **API 명세는 추측하지 않는다는 원칙에 따라**, 한국투자증권 공식 GitHub
+  저장소(`koreainvestment/open-trading-api`)의 예제 코드에서 정확한 endpoint/TR_ID를
+  확인했다:
+  - 국내업종 현재지수: `GET /uapi/domestic-stock/v1/quotations/inquire-index-price`,
+    TR_ID `FHPUP02100000`, `FID_INPUT_ISCD`는 코스피 `0001`/코스닥 `1001`.
+  - 주식현재가 투자자(종목별 외국인/기관/개인 순매수): `GET
+    /uapi/domestic-stock/v1/quotations/inquire-investor`, TR_ID `FHKST01010900`.
+    이 API는 종목별로 최근 거래일들을 리스트로 반환하며(최신순), 첫 번째 행을 쓴다.
+- **순매수 거래대금 필드의 단위는 문서에 없어서 실 서버에 라이브로 호출해 검증했다.**
+  같은 날 같은 종목(005930)의 `frgn_ntby_qty`(순매수 수량, 3,246,247주)×종가(270,000원)
+  ≈ 8,765억원과 `frgn_ntby_tr_pbmn`(871,112) 값을 대조한 결과 약 100만 배 차이가 나
+  **백만원 단위**임을 확인했다(× 1,000,000 = 8,711억원, 오차 1% 이내 — 장중 체결가
+  변동을 감안하면 합리적). `inquire-price`의 `acml_tr_pbmn`(원 단위, 배율 없음)과는
+  단위가 다르므로 상수(`_INVESTOR_UNIT_MULTIPLIER`)로 분리해 착각을 방지했다.
+- `KISClient.fetch_stocks()`가 종목마다 시세 조회 뒤 투자자매매동향도 함께 조회해
+  `RawStock.foreign_net_buy`/`institution_net_buy`/`individual_net_buy`를 채운다 —
+  종목당 API 호출이 1개에서 2개로 늘어 전체 갱신 시간이 늘지만(69종목 기준 약 10초 →
+  약 21초), 이미 구현된 stale-while-revalidate 덕분에 웜스타트에서는 백그라운드에서
+  처리되고 사용자 요청은 즉시 기존 캐시로 응답한다.
+  `market_service.get_market_overview()`의 `foreign_net_buy_total` 등 합계는 이미
+  `sum_optional_by`로 종목별 값을 더하고 있었으므로, 종목 데이터가 채워지자 자동으로
+  함께 채워졌다(별도 로직 추가 불필요). `MarketIndexOut`(KOSPI/KOSDAQ 카드 단위)의
+  순매수 필드도 같은 방식으로 채운다.
+- `KISClient.fetch_market_indices()`는 이제 `inquire-index-price`를 우선 호출하고
+  (`data_source: "kis"`), 실패할 때만 기존 가중평균 추정치로 폴백한다
+  (`data_source: "kis_estimated"`) — 지수 API 하나가 죽어도 전체 대시보드가 멎지 않게
+  하기 위함이다.
+- 실제 KIS 키로 확인한 결과(2026-09-07): KOSPI 6,995.39(+4.61%), KOSDAQ
+  822.19(+1.07%), 외국인 순매수 2.3조원/기관 2.2조원/개인 -6.1조원으로 대시보드가
+  정상 표시됨을 Playwright 스크린샷으로 확인했다. Market Movers의 `외국인 순매수`/
+  `기관 순매수` TOP 10과 Money Flow의 업종별·종목별 TOP 리스트도 함께 채워졌다.
+- 테스트: `tests/test_kis_client.py`에 `_parse_index_output`(부호 처리 포함),
+  `_fetch_investor`/`_fetch_index_quote` 재시도 성공/포기, 지수 API 실패 시 추정치
+  폴백, 투자자매매동향 단위 변환 검증을 추가했다 (총 9개, 기존 KIS 테스트 11개와
+  합쳐 19개; Backend 전체 132개).
 
 ## DART 연동 (STEP 7)
 
@@ -435,11 +476,12 @@ python -m pytest -q
 ```
 
 분석 함수(등락률/거래량비율/업종집계/재무비율) 단위 테스트, API 엔드포인트 테스트, KIS
-클라이언트 테스트(토큰 발급/시세 파싱/재시도/N/A 처리), DART 클라이언트 테스트(corp_code 매핑/
-재무제표 폴백/공시 파싱/재시도/캐싱), Mock 뉴스 클라이언트 테스트(시드 안정성/팩토리 분기),
-Mock LLM 브리핑 클라이언트 테스트(문장 조립/N/A 처리/조사 선택), Repository/Service 레이어
-테스트(데이터 신선도 판단, 싱글플라이트 락, 백그라운드 갱신 분기), DART Events 집계
-테스트(정렬/개수 제한/부분 실패 처리)를 포함한다 (총 123개, 전부 네트워크 Mock).
+클라이언트 테스트(토큰 발급/시세 파싱/재시도/N/A 처리/실 지수·투자자매매동향 파싱/단위 변환),
+DART 클라이언트 테스트(corp_code 매핑/재무제표 폴백/공시 파싱/재시도/캐싱), Mock 뉴스
+클라이언트 테스트(시드 안정성/팩토리 분기), Mock LLM 브리핑 클라이언트 테스트(문장 조립/N/A
+처리/조사 선택), Repository/Service 레이어 테스트(데이터 신선도 판단, 싱글플라이트 락,
+백그라운드 갱신 분기), DART Events 집계 테스트(정렬/개수 제한/부분 실패 처리)를 포함한다
+(총 132개, 전부 네트워크 Mock).
 
 ```bash
 cd frontend

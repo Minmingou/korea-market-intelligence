@@ -25,3 +25,6 @@ frontend/out/
 
 # OS
 .DS_Store
+
+# Playwright MCP 스냅샷/콘솔 로그 (대시보드 확인용 임시 산출물)
+.playwright-mcp/

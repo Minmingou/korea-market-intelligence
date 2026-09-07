@@ -396,6 +396,7 @@ class KISClient(MarketDataClient):
         "top_gainers",
         "top_losers",
         "top_trading_value",
+        "top_volume",
         "foreign_net_buy",
         "institution_net_buy",
     }
@@ -408,9 +409,12 @@ class KISClient(MarketDataClient):
         움직임을 놓친다. KIS 순위분석 API는 종목 유니버스와 무관하게 전체 시장을
         대상으로 하므로, 이 엔드포인트가 있는 카테고리는 여기서 직접 채운다.
 
-        `volume_surge`(거래량 급증)는 순위 API의 "거래증가율" 응답이 ETN/ETF
-        이상치(9999.99배 등)에 지배되어 신뢰할 수 없어 지원하지 않는다 - 호출자가
-        기존 방식(20일 평균거래량 대비 배율)으로 폴백해야 한다.
+        원래 있던 `volume_surge`(20일 평균거래량 대비 배율)는 지원하지 않는다 -
+        KIS 현재가/순위 API 어디에도 진짜 N일 평균거래량 필드가 없다(라이브 호출로
+        검증: volume-rank API의 avrg_vol은 acml_vol과 항상 동일한 값을 반환하는
+        허수 필드였다). 순위 API의 "거래증가율"(vol_inrt) 응답도 ETN/ETF 등 이상치
+        (9999.99배 등)에 지배되어 신뢰할 수 없다. 대신 같은 이유로 값을 신뢰할 수
+        있는 `top_volume`(당일 거래량 절대량 상위, FID_BLNG_CLS_CODE="0")을 제공한다.
         """
         if category not in self._MOVER_CATEGORIES_VIA_RANKING:
             return None
@@ -469,6 +473,35 @@ class KISClient(MarketDataClient):
                 if s is not None
             ]
             stocks.sort(key=lambda s: s.trading_value or 0, reverse=True)
+            return stocks[:limit]
+
+        if category == "top_volume":
+            rows = self._get_ranked(
+                "/uapi/domestic-stock/v1/quotations/volume-rank",
+                _VOLUME_RANK_TR_ID,
+                {
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_COND_SCR_DIV_CODE": "20171",
+                    "FID_INPUT_ISCD": market_iscd,
+                    "FID_DIV_CLS_CODE": "0",
+                    "FID_BLNG_CLS_CODE": "0",  # 거래량순 (acml_vol 내림차순)
+                    "FID_TRGT_CLS_CODE": "111111111",
+                    "FID_TRGT_EXLS_CLS_CODE": _EXCLUDE_ETF_ETN,
+                    "FID_INPUT_PRICE_1": "",
+                    "FID_INPUT_PRICE_2": "",
+                    "FID_VOL_CNT": "",
+                    "FID_INPUT_DATE_1": "",
+                },
+            )
+            stocks = [
+                s
+                for s in (
+                    self._raw_stock_from_rank_row(r, "mksc_shrn_iscd", market_index, now)
+                    for r in rows
+                )
+                if s is not None
+            ]
+            stocks.sort(key=lambda s: s.volume, reverse=True)
             return stocks[:limit]
 
         # foreign_net_buy / institution_net_buy

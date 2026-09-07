@@ -28,7 +28,7 @@ MOVER_CATEGORIES = {
     "top_gainers": lambda s: s.change_rate,
     "top_losers": lambda s: -s.change_rate,
     "top_trading_value": lambda s: s.trading_value,
-    "volume_surge": lambda s: calculate_volume_ratio(s.volume, s.avg_volume_20d),
+    "top_volume": lambda s: s.volume,
     "foreign_net_buy": lambda s: s.foreign_net_buy,
     "institution_net_buy": lambda s: s.institution_net_buy,
 }
@@ -128,9 +128,8 @@ def get_market_movers(
             data_source=data_source,
         )
 
-    # 폴백: 순위 API를 지원하지 않는 클라이언트(Mock, 또는 volume_surge처럼 순위
-    # API로 신뢰성 있게 채울 수 없는 카테고리)는 fetch_stocks()로 채운 종목 목록에서
-    # 직접 순위를 계산한다.
+    # 폴백: 순위 API를 지원하지 않는 클라이언트(Mock)는 fetch_stocks()로 채운
+    # 종목 목록에서 직접 순위를 계산한다.
     repo = StockRepository(db)
     stocks = repo.get_all(market)
     key = MOVER_CATEGORIES[category]

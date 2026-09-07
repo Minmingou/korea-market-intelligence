@@ -273,8 +273,14 @@ API 두 개를 마저 연동했다.
 - 종목 상세 페이지에 해당 종목 관련 최근 뉴스 목록을 추가했다. `NewsDataClient` 인터페이스
   (`fetch_news`)를 KIS/DART와 동일한 패턴으로 정의하고, `MockNewsClient`와 실제 구현체인
   `NaverNewsClient`(네이버 뉴스 검색 API, `app/clients/naver_news_client.py`)가 이를 공유한다.
-  `USE_MOCK_NEWS=false` + `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`(developers.naver.com에서
-  무료 발급)를 채우면 실제 뉴스로 전환된다.
+  `USE_MOCK_NEWS=false` + `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`를 채우면 실제 뉴스로
+  전환된다. 2026-07-31부로 네이버가 검색 API를 개발자센터(developers.naver.com)에서
+  네이버클라우드플랫폼의 "NAVER API HUB"(`naverapihub.apigw.ntruss.com`)로 이관해,
+  신규 발급은 `console.ncloud.com` 가입 -> NAVER API HUB -> Search API 신청 경로로만
+  가능하다(개발자센터 "사용 API" 목록에는 더 이상 검색이 없음). 엔드포인트 경로
+  (`/news.json` -> `/search/v1/news`)와 인증 헤더(`X-Naver-Client-Id/Secret` ->
+  `X-NCP-APIGW-API-KEY-ID`/`X-NCP-APIGW-API-KEY`)만 바뀌었고 요청 파라미터·응답 필드는
+  동일하다.
 - `NaverNewsClient`는 종목코드를 그대로 검색어로 쓸 수 없으므로(네이버 뉴스 검색은 자유
   텍스트 쿼리) `stock_master`(전종목 코드/종목명 마스터)에서 종목명을 찾아 그 이름으로
   검색한다. 응답의 title은 검색어를 `<b>` 태그로 감싸고 HTML 엔티티로 이스케이프하므로
@@ -532,6 +538,35 @@ SCREENER(수급+기술적) 옆에 나란히 둘 밸류/퀄리티 스크리너, (
   `ValueScreener.test.tsx`/`PeerValuation.test.tsx`/`EarningsTrend.test.tsx`를 신설하고
   `page.test.tsx`를 갱신했다(Frontend 전체 57개).
 
+## DART 실 연동 활성화 + 거래량 급증 TOP10 교체 (사용자 피드백 반영)
+
+사용자가 대시보드에 남은 Mock 표시와 거래량 급증 TOP10의 "데이터 없음"을 지적했다.
+
+- **DART 실 연동 활성화**: `DART_API_KEY`를 발급받아 `.env`에 등록하고
+  `USE_MOCK_DART=false`로 전환했다. 이미 오늘 자로 Mock 재무제표가 `CompanyFinancials`
+  테이블에 69종목 캐시되어 있어(day 단위 신선도 체크가 "오늘 이미 갱신함"으로 판단),
+  키를 바꾼 뒤에도 그대로 서빙되는 문제가 있었다 - `data_source='mock'`인 캐시 행을 지워
+  다음 요청부터 실제 DART가 다시 채우도록 했다. RECENT DISCLOSURES/COMPANY FINANCIALS/
+  PEER VALUATION/EARNINGS TREND 전부 `data_source: "dart"`로 전환됨을 라이브 호출로
+  확인했다. 뉴스(`USE_MOCK_NEWS`)는 네이버 API 키가 아직 없어 Mock으로 남아있다 - 키
+  발급 후 동일한 방식으로 전환 가능하다.
+- **거래량 급증 TOP10 → 거래량 TOP10**: `volume_surge`(20일 평균거래량 대비 배율)는 KIS
+  어떤 API에도 진짜 N일 평균거래량 필드가 없어 항상 빈 목록이었다(`MOVER_CATEGORIES`가
+  `avg_volume_20d=None`인 종목을 순위에서 제외 -> 전 종목 제외). 라이브 호출로 대안을
+  검증했다: 거래량순위 API(`/quotations/volume-rank`)의 `avrg_vol`(평균거래량) 필드는
+  `acml_vol`(당일 누적거래량)과 항상 동일한 값을 반환하는 허수 필드였고, `vol_inrt`
+  (거래증가율)는 삼미금속 등에서 9999.99배로 튀는 이상치가 실제로 확인됐다(기존 코드
+  주석의 "ETN/ETF 이상치로 신뢰 불가" 판단이 맞았음). 대신 같은 엔드포인트가 안정적으로
+  제공하는 **당일 거래량 절대량**(`FID_BLNG_CLS_CODE="0"`, `acml_vol` 내림차순)으로
+  카테고리를 교체했다 - 거래대금(원화 금액) TOP10과는 다른 지표라 중복도 아니다. 카테고리
+  키를 `volume_surge` -> `top_volume`으로, 라벨을 "거래량 급증 TOP 10" -> "거래량 TOP 10"으로
+  바꿨다(백엔드 5개 파일 + 프론트엔드 4개 파일 + README, 관련 테스트도 함께 갱신 -
+  Backend/Frontend 테스트 총 개수는 213/57로 변동 없음, rename이라 순증가 없음).
+  - MY SCREENER(수급+기술적)의 "거래량 급증" 신호(`score_candidate`의
+    `volume_surge_threshold`)도 같은 이유로 KIS 실데이터에서는 항상 미충족 상태다 - 이번
+    작업 범위에는 포함하지 않았고, 4개 신호 중 1개가 항상 빠진 채 최대 3점까지만 나온다는
+    점을 기록해둔다.
+
 ## API 엔드포인트
 
 | Method | Path | 설명 |
@@ -542,7 +577,7 @@ SCREENER(수급+기술적) 옆에 나란히 둘 밸류/퀄리티 스크리너, (
 | GET | `/api/stocks/search?q=&limit=` | 종목 검색 (KOSPI+KOSDAQ 전종목, 코드/종목명) |
 | GET | `/api/stocks/{code}` | 종목 상세 (유니버스 밖 종목은 단건 조회로 즉시 채움) |
 | GET | `/api/stocks/{code}/chart?period=&count=` | 종목 기간별 시세(일/주/월/년봉 OHLCV, 캔들차트용) |
-| GET | `/api/stocks/movers?category=&market=&limit=` | Market Movers - 전체 시장 기준(top_gainers/top_losers/top_trading_value/foreign_net_buy/institution_net_buy), volume_surge만 큐레이션 유니버스 기반 |
+| GET | `/api/stocks/movers?category=&market=&limit=` | Market Movers - 전체 시장 기준(top_gainers/top_losers/top_trading_value/top_volume/foreign_net_buy/institution_net_buy) |
 | GET | `/api/sectors?market=&sort_by=` | 업종별 집계 |
 | GET | `/api/flows?market=&top_n=` | 투자자별 자금 흐름 (업종/종목 TOP N) |
 | GET | `/api/stocks/{code}/financials` | 기업 재무제표 + PER/PBR/ROE/EPS/BPS (STEP 7) |

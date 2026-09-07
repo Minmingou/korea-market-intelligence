@@ -16,8 +16,10 @@ def naver_client(monkeypatch):
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/search/news.json"
+        assert request.url.path == "/search/v1/news"
         assert request.url.params["query"] == "삼성전자"
+        assert request.headers["X-NCP-APIGW-API-KEY-ID"] == "test-id"
+        assert request.headers["X-NCP-APIGW-API-KEY"] == "test-secret"
         return httpx.Response(
             200,
             json={
@@ -34,7 +36,9 @@ def naver_client(monkeypatch):
 
     client = NaverNewsClient()
     client._http = httpx.Client(
-        base_url="https://openapi.naver.com/v1/search", transport=httpx.MockTransport(handler)
+        base_url="https://naverapihub.apigw.ntruss.com",
+        headers=client._http.headers,
+        transport=httpx.MockTransport(handler),
     )
     return client
 

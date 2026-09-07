@@ -530,9 +530,13 @@ def test_fetch_movers_foreign_net_buy_applies_unit_multiplier(kis_client_with_ra
     assert stocks[0].institution_net_buy == 6789 * 1_000_000
 
 
-def test_fetch_movers_returns_none_for_volume_surge(kis_client_with_rank_transport):
-    # 순위 API로 신뢰성 있게 채울 수 없는 카테고리는 None -> 호출자가 폴백해야 함을 뜻한다.
-    assert kis_client_with_rank_transport.fetch_movers("volume_surge", None, 10) is None
+def test_fetch_movers_top_volume_ranks_by_raw_volume(kis_client_with_rank_transport):
+    stocks = kis_client_with_rank_transport.fetch_movers("top_volume", None, 10)
+    assert stocks is not None
+    assert stocks[0].stock_code == "000003"
+    assert stocks[0].volume == 1000000
+    # 순위 API 응답에는 없는 필드 -> 지어내지 않고 None
+    assert stocks[0].trading_value is None
 
 
 def test_fetch_daily_chart_returns_bars_sorted_ascending_by_date(kis_client_with_rank_transport):

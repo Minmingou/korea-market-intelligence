@@ -6,7 +6,7 @@ const CATEGORY_LABELS: Record<MoverCategory, string> = {
   top_gainers: "상승률 TOP 10",
   top_losers: "하락률 TOP 10",
   top_trading_value: "거래대금 TOP 10",
-  volume_surge: "거래량 급증 TOP 10",
+  top_volume: "거래량 TOP 10",
   foreign_net_buy: "외국인 순매수 TOP 10",
   institution_net_buy: "기관 순매수 TOP 10",
 };
@@ -18,12 +18,8 @@ function valueForCategory(category: MoverCategory, stock: MoverCategoryResult["i
       return <span className={changeColorClass(stock.change_rate)}>{formatChangeRate(stock.change_rate)}</span>;
     case "top_trading_value":
       return <span className="text-neutral-300">{formatKRW(stock.trading_value)}</span>;
-    case "volume_surge":
-      return stock.volume_ratio !== null ? (
-        <span className="text-amber-400">{stock.volume_ratio.toFixed(2)}x</span>
-      ) : (
-        <span className="text-neutral-400">N/A</span>
-      );
+    case "top_volume":
+      return <span className="text-neutral-300">{stock.volume.toLocaleString("ko-KR")}주</span>;
     case "foreign_net_buy":
       return <span className={changeColorClass(stock.foreign_net_buy)}>{formatKRW(stock.foreign_net_buy)}</span>;
     case "institution_net_buy":

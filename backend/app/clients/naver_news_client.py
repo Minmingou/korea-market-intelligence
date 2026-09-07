@@ -6,6 +6,12 @@
 
 응답의 title/description은 검색어를 <b>태그로 감싸고 HTML 엔티티(&amp; 등)로
 이스케이프되어 있어, 화면에 그대로 노출하지 않기 위해 벗겨낸다.
+
+2026-07-31부로 네이버가 검색 API를 개발자센터(openapi.naver.com)에서 네이버클라우드
+플랫폼의 "NAVER API HUB"(naverapihub.apigw.ntruss.com)로 이관했다 - 신규 애플리케이션은
+개발자센터에서 더 이상 검색 API를 신청할 수 없다. 엔드포인트 경로(`/news.json` ->
+`/search/v1/news`)와 인증 헤더 이름만 바뀌었고, 요청 파라미터(query/display/sort)와
+응답 JSON 필드(title/originallink/link/pubDate)는 기존과 동일하다.
 """
 
 import logging
@@ -45,11 +51,11 @@ class NaverNewsClient(NewsDataClient):
                 "NAVER_CLIENT_ID/NAVER_CLIENT_SECRET이 설정되지 않았습니다. .env를 확인하세요."
             )
         self._http = httpx.Client(
-            base_url="https://openapi.naver.com/v1/search",
+            base_url="https://naverapihub.apigw.ntruss.com",
             timeout=10.0,
             headers={
-                "X-Naver-Client-Id": settings.naver_client_id,
-                "X-Naver-Client-Secret": settings.naver_client_secret,
+                "X-NCP-APIGW-API-KEY-ID": settings.naver_client_id,
+                "X-NCP-APIGW-API-KEY": settings.naver_client_secret,
             },
         )
 
@@ -62,7 +68,7 @@ class NaverNewsClient(NewsDataClient):
         last_error: httpx.HTTPStatusError | None = None
         for attempt in range(_MAX_RETRIES):
             try:
-                response = self._http.get("/news.json", params=params)
+                response = self._http.get("/search/v1/news", params=params)
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
                 last_error = exc

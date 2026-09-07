@@ -14,7 +14,7 @@ MoverCategory = Literal[
     "top_gainers",
     "top_losers",
     "top_trading_value",
-    "volume_surge",
+    "top_volume",
     "foreign_net_buy",
     "institution_net_buy",
 ]

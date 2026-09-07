@@ -19,7 +19,7 @@ korea-market-intelligence/
 │   │   ├── main.py          # FastAPI 엔트리포인트
 │   │   ├── config.py        # 환경변수 기반 설정
 │   │   ├── database.py      # SQLAlchemy 엔진/세션
-│   │   ├── api/                # FastAPI 라우터 (market/stocks/sectors/flows/company)
+│   │   ├── api/                # FastAPI 라우터 (market/stocks/sectors/flows/company/events)
 │   │   ├── clients/             # 시세/기업/뉴스/브리핑 데이터 소스 (Mock/실제 KIS·DART 공용
 │   │   │                         # 인터페이스, 뉴스·LLM 브리핑은 STEP 8/9 기준 Mock만 구현)
 │   │   ├── services/            # 비즈니스 로직 (Refresh-if-stale, 스키마 조립)
@@ -37,8 +37,8 @@ korea-market-intelligence/
 │   │   ├── stocks/[code]/       # 종목 상세 페이지 (브리핑 STEP 9 히어로, 재무제표/공시 STEP 7, 뉴스 STEP 8)
 │   │   └── layout.tsx
 │   ├── components/              # MarketOverview/MarketMap/SectorTable/MoneyFlow/MarketMovers/
-│   │                             # CompanyFinancials/DisclosureList/NewsList/AiBrief/
-│   │                             # RefreshButton/AutoRefresh (STEP 10, *.test.tsx는 STEP 11)
+│   │                             # CompanyFinancials/DisclosureList/NewsList/AiBrief/MarketEvents/
+│   │                             # RefreshButton/AutoRefresh (STEP 10, *.test.tsx는 STEP 11+)
 │   ├── lib/api.ts, format.ts    # Backend API 호출 및 포맷 헬퍼 (format.test.ts는 STEP 11)
 │   ├── types/market.ts          # 공용 타입
 │   └── vitest.config.mts        # Vitest 설정 (STEP 11)
@@ -99,10 +99,10 @@ flowchart LR
 - **KIS가 제공하지 않는 필드는 `N/A`(null)로 남긴다** — 예: 실 KIS 현재가 조회 응답에는 20일
   평균거래량과 투자자별(외국인/기관/개인) 순매수가 없다. 값을 추정해서 채우지 않는다
   (개발 원칙 참고).
-- **DB는 SQLite 단일 파일**이며 동시 쓰기 내성이 낮다. `market_service`의 싱글플라이트 락은
-  이 프로세스 내에서 KIS 중복 호출만 막을 뿐, 여러 워커/인스턴스로 수평 확장하면 락이 공유되지
-  않아 각 워커가 독립적으로 KIS를 호출한다 — 프로덕션 확장 시 PostgreSQL + 분산 락(예: Redis)으로
-  교체가 필요하다.
+- **DB는 SQLite 단일 파일**이며 동시 쓰기 내성이 낮다. `market_service`의 싱글플라이트 락과
+  `DartClient`의 공시 캐시(`_disclosure_cache`)는 둘 다 프로세스 메모리에 있는 상태라, 여러
+  워커/인스턴스로 수평 확장하면 공유되지 않고 워커마다 따로 생긴다 — 프로덕션 확장 시
+  PostgreSQL + 분산 락/캐시(예: Redis)로 교체가 필요하다.
 - **DART 공시 목록은 페이지네이션이 없다** — `count` 파라미터로 최대 50건까지만 조회 가능하다.
 
 ## Mock Data 설계
@@ -320,6 +320,67 @@ STEP 10까지는 새 화면/기능을 추가할 때 그 범위의 테스트만 �
 - 최종 결과: Backend 113개(기존 93 + 신규 20), Frontend 23개, 전부 통과. `npm run lint`,
   `npx tsc --noEmit`도 통과 확인.
 
+## DART Events (로드맵 완료 기준 보완)
+
+12단계 로드맵을 다 마친 뒤, 원본 기획서의 완료 기준 체크리스트를 다시 대조하는 과정에서 빠진
+항목을 발견했다: 대시보드에 "여러 종목의 최근 공시를 모아 보여주는" KEY EVENTS 카드가 없었다
+(STEP 7은 종목 상세 페이지의 공시 목록만 구현했음).
+
+- **`GET /api/events`**: 시가총액 상위 15개 종목 각각에서 최근 공시 3건씩을 모아
+  `rcept_dt` 기준 최신순으로 정렬해 상위 N건을 반환한다. 전체 69개 종목을 다 조회하면 실
+  DART 기준 순차 호출이 너무 많아지므로, 대시보드가 이미 주목하고 있는 시가총액 상위
+  종목으로 범위를 좁혔다.
+- 종목 하나의 공시 조회가 실패해도(`RawDisclosure` fetch 예외) 그 종목만 건너뛰고 나머지는
+  정상적으로 모은다 — 기존 서비스들과 동일한 "부분 실패해도 전체는 안 죽는다" 원칙.
+- 프론트엔드 `MarketEvents` 컴포넌트는 종목명(종목 상세 페이지 링크)과 공시 제목(DART 원문
+  링크, Mock은 URL 없음)을 함께 보여주며, 대시보드의 Market Movers 아래에 배치했다.
+- 테스트: `tests/test_event_service.py`(정렬/개수 제한/부분 실패 처리/data_source 판별),
+  `tests/test_api.py::test_events_endpoint`, `components/MarketEvents.test.tsx` 추가.
+  Backend 118개, Frontend 27개로 늘었다.
+
+## Frontend 테스트 보강 (로드맵 완료 기준 보완)
+
+STEP 11에서 추가한 프론트엔드 테스트는 순수 유틸과 컴포넌트 2개뿐이었다. 원본 기획서
+26번(Frontend Test)이 명시한 "Dashboard 렌더링 / Market Map 렌더링 / 종목 클릭 / 필터 작동 /
+API 오류 UI" 다섯 항목을 기준으로 보면 부족했다.
+
+- **`components/MarketMap.test.tsx`**: recharts의 `Treemap`/`ResponsiveContainer`는 jsdom에서
+  실제 크기(ResizeObserver 기반)를 계산하지 못해 타일을 전혀 그리지 않는다. 시각화 자체가
+  아니라 "MarketMap이 올바른 데이터를 필터링해서 넘기고 클릭 콜백을 올바르게 연결하는가"가
+  검증 대상이므로, `recharts`를 "data로 받은 항목마다 버튼 하나"로 단순화한 스텁으로
+  교체했다. KOSPI/KOSDAQ 필터, 종목명/코드 검색, 빈 결과 상태, 타일 클릭 시
+  `router.push("/stocks/{code}")` 호출을 검증한다.
+- **`app/page.test.tsx`**: `DashboardPage`는 async Server Component라 훅이 없으므로
+  `render(await DashboardPage())`로 바로 렌더링할 수 있었다. `@/lib/api`를 모킹해 (1) 모든
+  API가 성공하면 8개 섹션이 전부 렌더되는지, (2) 한 섹션의 API 호출만 실패해도(예:
+  `getMarketOverview` reject) 해당 섹션만 "불러올 수 없습니다 (N/A)" 문구로 대체되고 나머지
+  섹션은 정상 렌더되는지(부분 실패 격리) 검증한다. `MarketMap`/`RefreshButton`/`AutoRefresh`는
+  각자 이미 별도 테스트가 있고 여기서는 대시보드 조립 로직만 보면 되므로 얇은 스텁으로
+  대체했다.
+- 최종 결과: Frontend 27개 → 36개.
+
+## API 안정성/캐싱 보강 (로드맵 완료 기준 보완)
+
+기획서 23번(API 안정성)/24번(캐싱) 기준으로 KIS 클라이언트는 이미 재시도/백오프/요청 간격
+제어를 갖추고 있었지만, DART 클라이언트는 없었다. 또한 공시 목록(`/disclosures`, `/events`)은
+캐시 없이 매 요청마다 DART를 라이브 호출하고 있어, 60초 `AutoRefresh`와 15개 종목을 순회하는
+`GET /api/events`가 겹치면 실 DART 모드에서 호출량이 빠르게 늘어나는 구조였다.
+
+- **`DartClient._get_with_retry`**: KIS의 `_fetch_quote` 재시도 정책(5xx만 최대 3회, 매 시도
+  사이 0.5초 × 시도 횟수만큼 대기, 4xx는 즉시 포기)을 DART에도 그대로 적용했다. 재무제표
+  조회(`_fetch_finstate_rows`)와 공시 목록 조회(`fetch_disclosures`)가 이 공통 메서드를
+  공유한다. KIS 코드 자체는 이미 테스트가 있는 안정된 경로라 손대지 않았다.
+- **공시 목록 3분 캐시**: `DartClient` 인스턴스는 `get_dart_client()`가 요청마다 새로 만들기
+  때문에(위 아키텍처 다이어그램 참고) 인스턴스 필드로는 캐시가 요청 간에 살아남지 못한다.
+  그래서 `(stock_code, count)`를 키로 하는 모듈 전역 딕셔너리에 3분 TTL로 캐시했다 — 프로세스
+  안에서는 여러 `DartClient` 인스턴스가 이 캐시를 공유한다. 재무제표처럼 DB에 영속화하지 않은
+  이유는 그대로다(최신순 조회라 upsert 대상이 아님); 이건 어디까지나 반복 호출을 줄이기 위한
+  메모리 캐시다. 여러 워커로 확장하면 워커별로 캐시가 따로 생기는 한계는 위 "알려진
+  제약사항"에 적었다.
+- 테스트: `tests/test_dart_client.py`에 재시도 성공/포기/4xx 무재시도, 캐시 히트(다른
+  `DartClient` 인스턴스에서도 네트워크를 타지 않는지 실패하는 트랜스포트로 확인)/캐시 만료 후
+  재조회 6개를 추가했다 (총 123개).
+
 ## API 엔드포인트
 
 | Method | Path | 설명 |
@@ -336,6 +397,7 @@ STEP 10까지는 새 화면/기능을 추가할 때 그 범위의 테스트만 �
 | GET | `/api/stocks/{code}/news?count=` | 종목 관련 최근 뉴스 (STEP 8, 현재 Mock만 구현) |
 | GET | `/api/market/brief` | 시장 전체 AI 브리핑 (STEP 9, 현재 Mock만 구현) |
 | GET | `/api/stocks/{code}/brief` | 종목별 AI 브리핑 (STEP 9, 현재 Mock만 구현) |
+| GET | `/api/events?count=` | 시가총액 상위 종목들의 최근 공시 모음 (DART Events) |
 
 ## 실행 방법
 
@@ -374,17 +436,19 @@ python -m pytest -q
 
 분석 함수(등락률/거래량비율/업종집계/재무비율) 단위 테스트, API 엔드포인트 테스트, KIS
 클라이언트 테스트(토큰 발급/시세 파싱/재시도/N/A 처리), DART 클라이언트 테스트(corp_code 매핑/
-재무제표 폴백/공시 파싱), Mock 뉴스 클라이언트 테스트(시드 안정성/팩토리 분기), Mock LLM 브리핑
-클라이언트 테스트(문장 조립/N/A 처리/조사 선택), Repository/Service 레이어 테스트(데이터
-신선도 판단, 싱글플라이트 락, 백그라운드 갱신 분기)를 포함한다 (총 113개, 전부 네트워크 Mock).
+재무제표 폴백/공시 파싱/재시도/캐싱), Mock 뉴스 클라이언트 테스트(시드 안정성/팩토리 분기),
+Mock LLM 브리핑 클라이언트 테스트(문장 조립/N/A 처리/조사 선택), Repository/Service 레이어
+테스트(데이터 신선도 판단, 싱글플라이트 락, 백그라운드 갱신 분기), DART Events 집계
+테스트(정렬/개수 제한/부분 실패 처리)를 포함한다 (총 123개, 전부 네트워크 Mock).
 
 ```bash
 cd frontend
 npm test
 ```
 
-순수 유틸(`lib/format.ts`)과 STEP 10에서 추가한 클라이언트 컴포넌트(`RefreshButton`,
-`AutoRefresh`)를 Vitest + Testing Library로 검증한다 (총 23개).
+순수 유틸(`lib/format.ts`), 클라이언트 컴포넌트(`RefreshButton`, `AutoRefresh`, `MarketEvents`,
+`MarketMap`), Dashboard 조립 로직(`app/page.tsx`, API 부분 실패 시 섹션별 폴백 포함)을
+Vitest + Testing Library로 검증한다 (총 36개).
 
 ## 환경변수
 

@@ -7,9 +7,19 @@ import httpx
 import pytest
 
 from app.clients import get_dart_client
+from app.clients import dart_client as dart_client_module
 from app.clients.dart_client import DartClient
 from app.clients.mock_dart_client import MockDartClient
 from app.config import settings
+
+
+@pytest.fixture(autouse=True)
+def _clear_disclosure_cache():
+    # _disclosure_cache는 프로세스(모듈) 전역이라 테스트 간에 공유된다 — 매 테스트마다
+    # 비워서 서로 오염시키지 않도록 한다.
+    dart_client_module._disclosure_cache.clear()
+    yield
+    dart_client_module._disclosure_cache.clear()
 
 
 def _build_corp_code_zip(entries: list[tuple[str, str, str]]) -> bytes:
@@ -251,3 +261,135 @@ def test_factory_returns_dart_client_when_use_mock_dart_false(monkeypatch):
     monkeypatch.setattr(settings, "use_mock_dart", False)
     monkeypatch.setattr(settings, "dart_api_key", "test-key")
     assert isinstance(get_dart_client(), DartClient)
+
+
+# ---- 재시도/백오프 -----------------------------------------------------------------
+
+
+def test_fetch_disclosures_retries_on_transient_500_then_succeeds(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "dart_api_key", "test-key")
+    monkeypatch.setattr(
+        "app.clients.dart_client._CORP_CODE_CACHE_PATH", tmp_path / "dart_corp_code_map.json"
+    )
+    monkeypatch.setattr("app.clients.dart_client.time.sleep", lambda _seconds: None)
+    zip_bytes = _build_corp_code_zip([("00126380", "삼성전자", "005930")])
+    attempts = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/corpCode.xml":
+            return httpx.Response(200, content=zip_bytes)
+        if request.url.path == "/api/list.json":
+            attempts["count"] += 1
+            if attempts["count"] < 3:
+                return httpx.Response(500, json={"status": "500", "message": "internal error"})
+            return httpx.Response(200, json={"status": "000", "message": "정상", "list": []})
+        raise AssertionError(f"unexpected path: {request.url.path}")
+
+    client = DartClient()
+    client._http = httpx.Client(
+        base_url=settings.dart_base_url, transport=httpx.MockTransport(handler)
+    )
+
+    items = client.fetch_disclosures("005930")
+
+    assert attempts["count"] == 3
+    assert items == []
+
+
+def test_fetch_disclosures_gives_up_after_max_retries(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "dart_api_key", "test-key")
+    monkeypatch.setattr(
+        "app.clients.dart_client._CORP_CODE_CACHE_PATH", tmp_path / "dart_corp_code_map.json"
+    )
+    monkeypatch.setattr("app.clients.dart_client.time.sleep", lambda _seconds: None)
+    zip_bytes = _build_corp_code_zip([("00126380", "삼성전자", "005930")])
+    attempts = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/corpCode.xml":
+            return httpx.Response(200, content=zip_bytes)
+        if request.url.path == "/api/list.json":
+            attempts["count"] += 1
+            return httpx.Response(500, json={"status": "500", "message": "internal error"})
+        raise AssertionError(f"unexpected path: {request.url.path}")
+
+    client = DartClient()
+    client._http = httpx.Client(
+        base_url=settings.dart_base_url, transport=httpx.MockTransport(handler)
+    )
+
+    assert client.fetch_disclosures("005930") == []
+    assert attempts["count"] == 3
+
+
+def test_fetch_disclosures_does_not_retry_on_4xx(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "dart_api_key", "test-key")
+    monkeypatch.setattr(
+        "app.clients.dart_client._CORP_CODE_CACHE_PATH", tmp_path / "dart_corp_code_map.json"
+    )
+    zip_bytes = _build_corp_code_zip([("00126380", "삼성전자", "005930")])
+    attempts = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/corpCode.xml":
+            return httpx.Response(200, content=zip_bytes)
+        if request.url.path == "/api/list.json":
+            attempts["count"] += 1
+            return httpx.Response(400, json={"status": "400", "message": "bad request"})
+        raise AssertionError(f"unexpected path: {request.url.path}")
+
+    client = DartClient()
+    client._http = httpx.Client(
+        base_url=settings.dart_base_url, transport=httpx.MockTransport(handler)
+    )
+
+    assert client.fetch_disclosures("005930") == []
+    assert attempts["count"] == 1
+
+
+# ---- 공시 캐시 ---------------------------------------------------------------------
+
+
+def test_fetch_disclosures_is_cached_across_client_instances(dart_client_with_fake_transport):
+    client = dart_client_with_fake_transport
+    first = client.fetch_disclosures("005930", count=5)
+
+    # get_dart_client()는 요청마다 새 DartClient 인스턴스를 만든다. 새 인스턴스가
+    # (실패하는) 트랜스포트를 쓰더라도 캐시가 인스턴스가 아니라 모듈 전역이라면
+    # 캐시된 응답을 그대로 돌려줘야 한다.
+    def failing_handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("캐시가 있으면 두 번째 요청은 네트워크를 타면 안 된다")
+
+    second_client = DartClient()
+    second_client._http = httpx.Client(
+        base_url=settings.dart_base_url, transport=httpx.MockTransport(failing_handler)
+    )
+
+    second = second_client.fetch_disclosures("005930", count=5)
+
+    assert second == first
+
+
+def test_fetch_disclosures_refetches_after_cache_expires(dart_client_with_fake_transport):
+    client = dart_client_with_fake_transport
+    client.fetch_disclosures("005930", count=5)
+
+    cache_key = ("005930", 5)
+    cached_at, cached_items = dart_client_module._disclosure_cache[cache_key]
+    dart_client_module._disclosure_cache[cache_key] = (
+        cached_at - dart_client_module._DISCLOSURE_CACHE_TTL,
+        cached_items,
+    )
+
+    calls_before = {"list_json": 0}
+    original_get = client._http.get
+
+    def counting_get(path, *args, **kwargs):
+        if path == "/list.json":
+            calls_before["list_json"] += 1
+        return original_get(path, *args, **kwargs)
+
+    client._http.get = counting_get
+    client.fetch_disclosures("005930", count=5)
+
+    assert calls_before["list_json"] == 1

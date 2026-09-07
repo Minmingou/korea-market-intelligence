@@ -100,6 +100,17 @@ def test_disclosures_unknown_stock_returns_empty_list(client):
     assert res.json()["items"] == []
 
 
+def test_events_endpoint(client):
+    res = client.get("/api/events", params={"count": 5})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["data_source"] == "mock"
+    assert len(body["items"]) <= 5
+    rcept_dates = [item["rcept_dt"] for item in body["items"]]
+    assert rcept_dates == sorted(rcept_dates, reverse=True)
+    assert all("stock_name" in item for item in body["items"])
+
+
 def test_news_endpoint(client):
     res = client.get("/api/stocks/005930/news", params={"count": 5})
     assert res.status_code == 200

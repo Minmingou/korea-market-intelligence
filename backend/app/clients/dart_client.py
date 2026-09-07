@@ -15,6 +15,7 @@ DART API는 종목코드가 아니라 8자리 `corp_code`를 요구하므로, �
 import io
 import json
 import logging
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -30,6 +31,18 @@ logger = logging.getLogger(__name__)
 _CORP_CODE_CACHE_PATH = Path(__file__).resolve().parents[3] / "data" / "dart_corp_code_map.json"
 _CORP_CODE_CACHE_TTL = timedelta(days=7)
 _DISCLOSURE_LOOKBACK_DAYS = 90
+_MAX_RETRIES = 3
+_RETRY_BACKOFF_SEC = 0.5
+
+# 공시 목록은 DB에 영속화하지 않고 매 요청 라이브 호출하는 설계지만(STEP 7 참고),
+# 대시보드의 DART Events(GET /api/events)가 상위 15개 종목을 매번 조회하고 여기에
+# AutoRefresh(60초 간격)까지 겹치면 DART 호출이 급증한다. 이를 완화하기 위해
+# 프로세스 단위 메모리 캐시를 둔다 — DartClient는 요청마다 새로 생성되므로
+# (get_dart_client 참고) 인스턴스 필드가 아니라 모듈 전역에 둬야 요청 간에 공유된다.
+# 여러 워커 프로세스로 수평 확장하면 워커별로 캐시가 따로 생기는 한계가 있다(KIS의
+# 싱글플라이트 락과 같은 종류의 제약 — README "알려진 제약사항" 참고).
+_DISCLOSURE_CACHE_TTL = timedelta(minutes=3)
+_disclosure_cache: dict[tuple[str, int], tuple[datetime, list[RawDisclosure]]] = {}
 
 # DART 응답의 account_nm(계정명) -> 우리 필드명. 별칭은 IFRS 표기 차이를 흡수한다.
 _ACCOUNT_MAP = {
@@ -102,6 +115,32 @@ class DartClient(DartDataClient):
     def _corp_code_for(self, stock_code: str) -> str | None:
         return self._ensure_corp_code_map().get(stock_code)
 
+    # ---- 공통 HTTP 재시도 ----------------------------------------------------
+
+    def _get_with_retry(self, path: str, params: dict, *, context: str) -> httpx.Response | None:
+        # DART도 KIS와 마찬가지로 순간적인 호출 폭주 시 간헐적 5xx를 반환할 수 있어,
+        # 영구 실패로 취급하기 전에 짧은 간격을 두고 몇 차례 재시도한다(KISClient
+        # ._fetch_quote와 동일한 정책 — 5xx만 재시도, 4xx는 즉시 포기).
+        last_error: httpx.HTTPStatusError | None = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = self._http.get(path, params=params)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if exc.response.status_code < 500 or attempt == _MAX_RETRIES - 1:
+                    break
+                time.sleep(_RETRY_BACKOFF_SEC * (attempt + 1))
+                continue
+            except httpx.HTTPError:
+                logger.exception("%s 요청 실패", context)
+                return None
+            else:
+                return response
+
+        logger.warning("%s 재시도 실패: %s", context, last_error)
+        return None
+
     # ---- 재무제표 --------------------------------------------------------------
 
     @staticmethod
@@ -120,19 +159,17 @@ class DartClient(DartDataClient):
         ]
 
     def _fetch_finstate_rows(self, corp_code: str, year: int, reprt_code: str) -> list[dict] | None:
-        try:
-            response = self._http.get(
-                "/fnlttSinglAcnt.json",
-                params={
-                    "crtfc_key": settings.dart_api_key,
-                    "corp_code": corp_code,
-                    "bsns_year": str(year),
-                    "reprt_code": reprt_code,
-                },
-            )
-            response.raise_for_status()
-        except httpx.HTTPError:
-            logger.exception("DART 재무제표 조회 요청 실패: %s %s", corp_code, year)
+        response = self._get_with_retry(
+            "/fnlttSinglAcnt.json",
+            {
+                "crtfc_key": settings.dart_api_key,
+                "corp_code": corp_code,
+                "bsns_year": str(year),
+                "reprt_code": reprt_code,
+            },
+            context=f"DART 재무제표 조회 ({corp_code} {year})",
+        )
+        if response is None:
             return None
 
         body = response.json()
@@ -206,43 +243,48 @@ class DartClient(DartDataClient):
     # ---- 공시 목록 --------------------------------------------------------------
 
     def fetch_disclosures(self, stock_code: str, count: int = 10) -> list[RawDisclosure]:
+        cache_key = (stock_code, count)
+        cached = _disclosure_cache.get(cache_key)
+        now = datetime.now(timezone.utc)
+        if cached is not None and now - cached[0] < _DISCLOSURE_CACHE_TTL:
+            return cached[1]
+
         corp_code = self._corp_code_for(stock_code)
         if corp_code is None:
             logger.warning("DART corp_code를 찾을 수 없습니다: %s", stock_code)
             return []
 
-        today = datetime.now(timezone.utc).date()
+        today = now.date()
         bgn_de = (today - timedelta(days=_DISCLOSURE_LOOKBACK_DAYS)).strftime("%Y%m%d")
         end_de = today.strftime("%Y%m%d")
 
-        try:
-            response = self._http.get(
-                "/list.json",
-                params={
-                    "crtfc_key": settings.dart_api_key,
-                    "corp_code": corp_code,
-                    "bgn_de": bgn_de,
-                    "end_de": end_de,
-                    "page_no": 1,
-                    "page_count": count,
-                    "sort": "date",
-                    "sort_mth": "desc",
-                },
-            )
-            response.raise_for_status()
-        except httpx.HTTPError:
-            logger.exception("DART 공시 목록 조회 요청 실패: %s", stock_code)
+        response = self._get_with_retry(
+            "/list.json",
+            {
+                "crtfc_key": settings.dart_api_key,
+                "corp_code": corp_code,
+                "bgn_de": bgn_de,
+                "end_de": end_de,
+                "page_no": 1,
+                "page_count": count,
+                "sort": "date",
+                "sort_mth": "desc",
+            },
+            context=f"DART 공시 목록 조회 ({stock_code})",
+        )
+        if response is None:
             return []
 
         body = response.json()
         if body.get("status") == "013":  # 조회된 데이터가 없음 (정상 케이스)
+            _disclosure_cache[cache_key] = (now, [])
             return []
         if body.get("status") != "000":
             logger.warning("DART 공시 목록 조회 실패 (%s): %s", stock_code, body.get("message"))
             return []
 
         rows = body.get("list", [])[:count]
-        return [
+        disclosures = [
             RawDisclosure(
                 rcept_no=row["rcept_no"],
                 report_nm=row.get("report_nm", ""),
@@ -252,3 +294,5 @@ class DartClient(DartDataClient):
             )
             for row in rows
         ]
+        _disclosure_cache[cache_key] = (now, disclosures)
+        return disclosures

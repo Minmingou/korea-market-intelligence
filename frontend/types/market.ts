@@ -159,6 +159,21 @@ export interface NewsList {
   updated_at: string;
 }
 
+export interface MarketEvent {
+  stock_code: string;
+  stock_name: string;
+  rcept_no: string;
+  report_nm: string;
+  rcept_dt: string;
+  url: string | null;
+}
+
+export interface MarketEventList {
+  items: MarketEvent[];
+  data_source: string;
+  updated_at: string;
+}
+
 export interface MarketBrief {
   summary: string;
   data_source: string;

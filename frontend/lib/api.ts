@@ -4,6 +4,7 @@ import type {
   HealthStatus,
   Market,
   MarketBrief,
+  MarketEventList,
   MarketOverview,
   MoneyFlow,
   MoverCategory,
@@ -92,6 +93,11 @@ export function getNews(code: string, count?: number): Promise<NewsList> {
 
 export function getMarketBrief(): Promise<MarketBrief> {
   return apiGet("/api/market/brief");
+}
+
+export function getMarketEvents(count?: number): Promise<MarketEventList> {
+  const qs = count ? `?count=${count}` : "";
+  return apiGet(`/api/events${qs}`);
 }
 
 export function getStockBrief(code: string): Promise<StockBrief> {

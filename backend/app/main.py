@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api import company, flows, market, sectors, stocks
+from app.api import company, events, flows, market, sectors, stocks
 from app.config import settings
 from app.database import Base, SessionLocal, engine, get_db
 from app.services.market_service import refresh_if_needed
@@ -54,6 +54,7 @@ app.include_router(stocks.router)
 app.include_router(sectors.router)
 app.include_router(flows.router)
 app.include_router(company.router)
+app.include_router(events.router)
 
 
 @app.get("/", summary="서비스 정보")

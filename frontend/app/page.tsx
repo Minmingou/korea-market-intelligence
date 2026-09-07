@@ -1,5 +1,6 @@
 import AiBrief from "@/components/AiBrief";
 import AutoRefresh from "@/components/AutoRefresh";
+import MarketEvents from "@/components/MarketEvents";
 import MarketMap from "@/components/MarketMap";
 import MarketMovers from "@/components/MarketMovers";
 import MarketOverview from "@/components/MarketOverview";
@@ -8,6 +9,7 @@ import RefreshButton from "@/components/RefreshButton";
 import SectorTable from "@/components/SectorTable";
 import {
   getMarketBrief,
+  getMarketEvents,
   getMarketMovers,
   getMarketOverview,
   getMoneyFlow,
@@ -34,12 +36,13 @@ async function safe<T>(promise: Promise<T>): Promise<T | null> {
 }
 
 export default async function DashboardPage() {
-  const [overview, stocks, sectors, moneyFlow, brief, ...movers] = await Promise.all([
+  const [overview, stocks, sectors, moneyFlow, brief, events, ...movers] = await Promise.all([
     safe(getMarketOverview()),
     safe(getStocks()),
     safe(getSectors()),
     safe(getMoneyFlow()),
     safe(getMarketBrief()),
+    safe(getMarketEvents(10)),
     ...MOVER_CATEGORIES.map((category) => safe(getMarketMovers(category, { limit: 10 }))),
   ]);
 
@@ -105,6 +108,14 @@ export default async function DashboardPage() {
       ) : (
         <p className="border border-red-900 p-4 text-sm text-red-400">
           Market Movers 데이터를 불러올 수 없습니다 (N/A).
+        </p>
+      )}
+
+      {events ? (
+        <MarketEvents data={events} />
+      ) : (
+        <p className="border border-red-900 p-4 text-sm text-red-400">
+          Key Events 데이터를 불러올 수 없습니다 (N/A).
         </p>
       )}
     </main>

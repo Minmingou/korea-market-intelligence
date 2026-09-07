@@ -31,7 +31,15 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Korea Market Intelligence API", lifespan=lifespan)
+app = FastAPI(
+    title="Korea Market Intelligence API",
+    description=(
+        "KOSPI/KOSDAQ 시세, 업종/자금 흐름, 기업 재무·공시·뉴스, AI 브리핑을 제공하는 "
+        "API. 각 데이터 소스는 `USE_MOCK_*` 환경변수로 Mock/실제 구현을 전환한다 "
+        "(자세한 내용은 프로젝트 루트 README 참고)."
+    ),
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -48,12 +56,12 @@ app.include_router(flows.router)
 app.include_router(company.router)
 
 
-@app.get("/")
+@app.get("/", summary="서비스 정보")
 def root() -> dict:
     return {"service": "korea-market-intelligence", "status": "ok"}
 
 
-@app.get("/health")
+@app.get("/health", summary="헬스체크", description="DB 연결 상태와 현재 Mock/실 데이터 모드를 반환한다.")
 def health(db: Session = Depends(get_db)) -> dict:
     db_status = "ok"
     try:

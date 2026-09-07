@@ -18,7 +18,17 @@ class StockRepository:
     def is_fresh_since(self, cutoff: datetime) -> bool:
         stmt = select(Stock.updated_at).order_by(Stock.updated_at.desc()).limit(1)
         updated_at = self.db.execute(stmt).scalar_one_or_none()
-        return updated_at is not None and updated_at.astimezone(timezone.utc) >= cutoff
+        if updated_at is None:
+            return False
+        # SQLite는 DateTime(timezone=True) 컬럼도 tzinfo 없이 반환한다. 저장할 때
+        # 항상 UTC로 넣으므로(예: upsert_many의 raw.fetched_at) naive 값은 UTC로
+        # 간주해야 한다 — astimezone()에 그대로 넘기면 시스템 로컬 시간(KST)으로
+        # 오인해 값이 어긋난다.
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        else:
+            updated_at = updated_at.astimezone(timezone.utc)
+        return updated_at >= cutoff
 
     def upsert_many(self, raw_stocks: list[RawStock]) -> None:
         existing = {s.stock_code: s for s in self.db.execute(select(Stock)).scalars()}

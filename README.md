@@ -2,7 +2,7 @@
 
 KOSPI/KOSDAQ 시장을 실시간에 가깝게 분석/시각화하는 웹 기반 금융 데이터 분석 플랫폼.
 
-> 현재 **STEP 10 (Dashboard 통합)** 완료 상태입니다. 실제 기능은 이후 STEP에서 단계적으로 추가됩니다.
+> 현재 **STEP 12 (문서화)** 완료 상태입니다. 정의된 12단계 로드맵을 모두 마쳤습니다.
 
 ## 기술 스택
 
@@ -28,7 +28,7 @@ korea-market-intelligence/
 │   │   ├── schemas/              # Pydantic 응답 스키마
 │   │   ├── analysis/             # 순수 계산 함수 (등락률/거래량비율/업종집계/랭킹/재무비율)
 │   │   └── utils/                # 공용 유틸 (추후 구현)
-│   ├── tests/                   # pytest (분석 함수 단위 테스트 + API 테스트 + 클라이언트 테스트)
+│   ├── tests/                   # pytest (분석/클라이언트/API 테스트 + Repository·Service 테스트, STEP 11)
 │   ├── requirements.txt
 │   └── .env.example
 ├── frontend/
@@ -38,11 +38,72 @@ korea-market-intelligence/
 │   │   └── layout.tsx
 │   ├── components/              # MarketOverview/MarketMap/SectorTable/MoneyFlow/MarketMovers/
 │   │                             # CompanyFinancials/DisclosureList/NewsList/AiBrief/
-│   │                             # RefreshButton/AutoRefresh (STEP 10)
-│   ├── lib/api.ts, format.ts    # Backend API 호출 및 포맷 헬퍼
-│   └── types/market.ts          # 공용 타입
+│   │                             # RefreshButton/AutoRefresh (STEP 10, *.test.tsx는 STEP 11)
+│   ├── lib/api.ts, format.ts    # Backend API 호출 및 포맷 헬퍼 (format.test.ts는 STEP 11)
+│   ├── types/market.ts          # 공용 타입
+│   └── vitest.config.mts        # Vitest 설정 (STEP 11)
 └── data/                        # SQLite DB 파일 위치
 ```
+
+## 아키텍처 (STEP 12)
+
+```mermaid
+flowchart LR
+    subgraph Frontend["Next.js (App Router, SSR)"]
+        Page["page.tsx / stocks/[code]"]
+        RB["RefreshButton / AutoRefresh"]
+    end
+
+    subgraph Backend["FastAPI"]
+        API["api/ 라우터"]
+        Service["services/ (refresh_if_needed 등 비즈니스 로직)"]
+        Repo["repositories/ (DB 접근)"]
+        ClientFactory["clients/ 팩토리\n(USE_MOCK_* 로 구현체 선택)"]
+    end
+
+    DB[("SQLite\nkorea_market.db")]
+    KIS["KIS Open API\n(시세, 근실시간)"]
+    DART["DART Open API\n(재무제표/공시)"]
+    MockSrc["Mock 생성기\n(뉴스/LLM 브리핑, STEP 8/9 범위)"]
+
+    Page -->|SSR fetch| API
+    RB -->|router.refresh| Page
+    API --> Service
+    Service --> Repo
+    Repo <--> DB
+    Service --> ClientFactory
+    ClientFactory --> KIS
+    ClientFactory --> DART
+    ClientFactory --> MockSrc
+```
+
+- **요청 경로**: 브라우저는 Next.js가 서버에서 렌더한 HTML을 받는다(SSR) — 클라이언트에서 별도로
+  API를 호출하지 않는다. `RefreshButton`/`AutoRefresh`(STEP 10)는 `router.refresh()`로 같은
+  서버 컴포넌트를 다시 실행시켜 최신 데이터를 다시 SSR로 받아온다.
+- **Service 계층이 신선도를 책임진다**: API 라우터는 항상 `refresh_if_needed()`를 거친 뒤 DB를
+  읽는다. Mock 모드는 "오늘 데이터가 있는가"로, 실 KIS 모드는 "N초 이내에 갱신됐는가"로 신선도
+  기준이 다르다(STEP 4/10 개선, 위 "시세 갱신 정책" 참고). Repository/Client는 이 판단을 모르고
+  각자의 역할(DB 접근/외부 API 호출)만 한다.
+- **Mock ↔ 실제 전환은 팩토리 하나로 끝난다**: `USE_MOCK_DATA`/`USE_MOCK_DART`/`USE_MOCK_NEWS`/
+  `USE_MOCK_LLM` 각각이 독립적으로 구현체를 고른다. 뉴스/LLM은 아직 Mock만 구현되어 있어
+  `false`로 바꾸면 `NotImplementedError`가 난다 (의도된 동작 — STEP 8/9 범위 밖).
+
+## 알려진 제약사항
+
+- **뉴스/AI 브리핑은 Mock까지만 구현됨**: `USE_MOCK_NEWS`/`USE_MOCK_LLM`을 `false`로 바꾸면
+  즉시 `NotImplementedError`가 발생한다. 실 API 연동은 어떤 뉴스/LLM 공급자를 쓸지 정해지지
+  않아 의도적으로 이후 STEP으로 미뤘다.
+- **KOSPI/KOSDAQ 지수는 KIS의 공식 지수 API가 아니라 자체 추정치**다(`data_source=kis_estimated`).
+  실 KIS 모드에서도 종목별 시가총액을 집계해 근사한 값이며, 한국거래소가 발표하는 공식 지수와는
+  다를 수 있다.
+- **KIS가 제공하지 않는 필드는 `N/A`(null)로 남긴다** — 예: 실 KIS 현재가 조회 응답에는 20일
+  평균거래량과 투자자별(외국인/기관/개인) 순매수가 없다. 값을 추정해서 채우지 않는다
+  (개발 원칙 참고).
+- **DB는 SQLite 단일 파일**이며 동시 쓰기 내성이 낮다. `market_service`의 싱글플라이트 락은
+  이 프로세스 내에서 KIS 중복 호출만 막을 뿐, 여러 워커/인스턴스로 수평 확장하면 락이 공유되지
+  않아 각 워커가 독립적으로 KIS를 호출한다 — 프로덕션 확장 시 PostgreSQL + 분산 락(예: Redis)으로
+  교체가 필요하다.
+- **DART 공시 목록은 페이지네이션이 없다** — `count` 파라미터로 최대 50건까지만 조회 가능하다.
 
 ## Mock Data 설계
 
@@ -229,6 +290,36 @@ STEP 10은 새 API를 추가하지 않고 이미 있는 화면 두 개(대시보
   `eslint`로 검증했고, dev 서버를 띄워 대시보드/종목 상세 페이지의 SSR 응답에서 브리핑이
   각 섹션보다 먼저 나오는지, 새로고침 버튼이 렌더되는지 확인했다.
 
+## 테스트 (STEP 11)
+
+STEP 10까지는 새 화면/기능을 추가할 때 그 범위의 테스트만 같이 작성했다. STEP 11은 기능 추가
+없이, 지금까지 커버리지가 비어 있던 두 영역을 채우는 데 집중했다.
+
+- **Backend: Repository/Service 레이어**. STEP 4/10 개선(근실시간 KIS 갱신)에서 추가한
+  `MarketRepository`/`StockRepository`의 `has_any()`/`is_fresh_since()`, 그리고
+  `market_service.refresh_if_needed()`의 신선도 판단·싱글플라이트 락·
+  stale-while-revalidate 백그라운드 스레드 분기는 클라이언트/분석 로직 테스트와 달리
+  전혀 테스트되지 않은 채로 남아 있었다. 이 경로는 동시성이 얽혀 있어 이 프로젝트에서
+  가장 깨지기 쉬운 코드였다. `tests/test_market_repository.py`,
+  `tests/test_stock_repository.py`, `tests/test_market_service.py`를 추가해 Mock/실
+  KIS 모드별 신선도 기준, 콜드스타트 동기 조회, 웜스타트 백그라운드 조회, 락이 이미
+  걸려 있을 때 스킵하는 동작을 각각 검증한다.
+- **버그 발견 및 수정**: `is_fresh_since()` 테스트를 작성하는 과정에서 실제 버그를 하나
+  찾았다. SQLite는 `DateTime(timezone=True)` 컬럼도 tzinfo 없이(naive) 반환하는데, 기존
+  코드는 이 naive 값에 `.astimezone(timezone.utc)`를 그대로 호출하고 있었다 — naive
+  datetime을 "시스템 로컬 시간"(서버가 한국에 있다면 KST, UTC+9)으로 오인해 9시간 어긋난
+  값으로 변환하는 것이 Python 표준 동작이다. 그 결과 실 KIS 모드에서는 방금 갱신한 데이터도 항상
+  "9시간 지난 데이터"로 보여 매 요청마다 불필요한 재조회가 발생했을 것이다 (싱글플라이트
+  락 덕분에 중복 호출까지는 아니었지만, 30초 캐시가 사실상 전혀 동작하지 않는 상태).
+  naive 값은 UTC로 간주하도록(`replace(tzinfo=...)`) 두 리포지토리를 모두 수정했다.
+- **Frontend: 테스트 프레임워크 도입**. 기존에 프론트엔드에는 테스트가 전혀 없었다.
+  Vitest + Testing Library(+ jsdom)를 추가하고, 순수 로직인 `lib/format.ts`(등락 색상/
+  단위 변환/히트맵 색상 등)와 STEP 10에서 추가한 `RefreshButton`/`AutoRefresh`(새로고침
+  클릭 시 `router.refresh()` 호출, 하이드레이션 불일치 방지, 60초 자동 새로고침, 언마운트
+  시 타이머 정리)를 테스트했다.
+- 최종 결과: Backend 113개(기존 93 + 신규 20), Frontend 23개, 전부 통과. `npm run lint`,
+  `npx tsc --noEmit`도 통과 확인.
+
 ## API 엔드포인트
 
 | Method | Path | 설명 |
@@ -284,7 +375,16 @@ python -m pytest -q
 분석 함수(등락률/거래량비율/업종집계/재무비율) 단위 테스트, API 엔드포인트 테스트, KIS
 클라이언트 테스트(토큰 발급/시세 파싱/재시도/N/A 처리), DART 클라이언트 테스트(corp_code 매핑/
 재무제표 폴백/공시 파싱), Mock 뉴스 클라이언트 테스트(시드 안정성/팩토리 분기), Mock LLM 브리핑
-클라이언트 테스트(문장 조립/N/A 처리/조사 선택)를 포함한다 (총 93개, 전부 네트워크 Mock).
+클라이언트 테스트(문장 조립/N/A 처리/조사 선택), Repository/Service 레이어 테스트(데이터
+신선도 판단, 싱글플라이트 락, 백그라운드 갱신 분기)를 포함한다 (총 113개, 전부 네트워크 Mock).
+
+```bash
+cd frontend
+npm test
+```
+
+순수 유틸(`lib/format.ts`)과 STEP 10에서 추가한 클라이언트 컴포넌트(`RefreshButton`,
+`AutoRefresh`)를 Vitest + Testing Library로 검증한다 (총 23개).
 
 ## 환경변수
 
@@ -334,5 +434,5 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - [x] STEP 8 — News (Mock만 구현, 실 API 연동은 이후 STEP)
 - [x] STEP 9 — AI Market Brief (Mock만 구현, 실 LLM 연동은 이후 STEP)
 - [x] STEP 10 — Dashboard 통합
-- [ ] STEP 11 — 테스트
-- [ ] STEP 12 — 문서화
+- [x] STEP 11 — 테스트
+- [x] STEP 12 — 문서화

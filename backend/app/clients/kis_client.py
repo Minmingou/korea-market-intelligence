@@ -21,7 +21,14 @@ from pathlib import Path
 import httpx
 
 from app.analysis.flow_analysis import sum_by, sum_optional_by
-from app.clients.market_data_client import MarketDataClient, RawDailyBar, RawMarketIndex, RawStock
+from app.clients.market_data_client import (
+    MAX_CHART_COUNT,
+    MarketDataClient,
+    RawDailyBar,
+    RawInvestorFlow,
+    RawMarketIndex,
+    RawStock,
+)
 from app.clients.mock_universe import STOCK_UNIVERSE
 from app.clients.stock_master import build_code_market_index, get_stock_master
 from app.config import settings
@@ -491,34 +498,46 @@ class KISClient(MarketDataClient):
 
     # ---- 종목별 기간별 시세(차트) --------------------------------------------
 
-    _PERIOD_SPAN_DAYS = {"D": 1, "W": 7, "M": 31, "Y": 366}
+    # 봉 하나당 평균 며칠이 걸리는지(페이지 하나가 커버할 달력일수 역산용). 일봉은
+    # 주말/공휴일 때문에 실제로는 거래일 1개당 달력일 1.6일 정도가 필요하다 - 예전
+    # 코드는 이를 1로 잘못 가정해 일봉 조회 범위가 실제 필요량의 60%뿐이었고, 이게
+    # "차트가 최근 3개월치만 보인다" 버그의 원인이었다.
+    _PERIOD_DAYS_PER_BAR = {"D": 1.6, "W": 7.0, "M": 31.0, "Y": 366.0}
+    _PAGE_ROWS = 100  # KIS 기간별시세 API가 한 번의 호출로 반환하는 최대 건수
+    _MAX_CHART_PAGES = MAX_CHART_COUNT // _PAGE_ROWS  # 페이지네이션 안전 상한(무한 루프 방지)
 
     def fetch_daily_chart(self, stock_code: str, period: str, count: int) -> list[RawDailyBar] | None:
-        period_code = period if period in self._PERIOD_SPAN_DAYS else "D"
-        count = max(1, min(count, 100))  # 실전계좌 기준 한 번의 호출로 최대 100건까지만 조회 가능
-        span_days = self._PERIOD_SPAN_DAYS[period_code] * (count + 10)  # 휴장일 등을 흡수할 여유
-        end = datetime.now(timezone.utc)
-        start = end - timedelta(days=span_days)
+        period_code = period if period in self._PERIOD_DAYS_PER_BAR else "D"
+        count = max(1, min(count, MAX_CHART_COUNT))
+        # 한 페이지가 커버하는 달력일수(여유 15일 포함, 휴장일 등을 흡수)
+        page_span_days = int(self._PAGE_ROWS * self._PERIOD_DAYS_PER_BAR[period_code]) + 15
 
-        rows = self._get_ranked(
-            "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
-            _CHART_TR_ID,
-            {
-                "FID_COND_MRKT_DIV_CODE": "J",
-                "FID_INPUT_ISCD": stock_code,
-                "FID_INPUT_DATE_1": start.strftime("%Y%m%d"),
-                "FID_INPUT_DATE_2": end.strftime("%Y%m%d"),
-                "FID_PERIOD_DIV_CODE": period_code,
-                "FID_ORG_ADJ_PRC": "0",  # 수정주가
-            },
-            output_key="output2",
-        )
+        # 최신 날짜부터 과거로 날짜 구간을 밀어가며 여러 번 호출해 이어붙인다 - KIS
+        # API가 한 번에 최대 100건까지만 주기 때문에, "전체 주가"를 보여주려면
+        # 페이지네이션이 필요하다.
+        bars_by_date: dict[str, RawDailyBar] = {}
+        window_end = datetime.now(timezone.utc)
 
-        bars: list[RawDailyBar] = []
-        for row in rows:
-            try:
-                bars.append(
-                    RawDailyBar(
+        for _ in range(self._MAX_CHART_PAGES):
+            window_start = window_end - timedelta(days=page_span_days)
+            rows = self._get_ranked(
+                "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+                _CHART_TR_ID,
+                {
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD": stock_code,
+                    "FID_INPUT_DATE_1": window_start.strftime("%Y%m%d"),
+                    "FID_INPUT_DATE_2": window_end.strftime("%Y%m%d"),
+                    "FID_PERIOD_DIV_CODE": period_code,
+                    "FID_ORG_ADJ_PRC": "0",  # 수정주가
+                },
+                output_key="output2",
+            )
+
+            new_dates = 0
+            for row in rows:
+                try:
+                    bar = RawDailyBar(
                         date=row["stck_bsop_date"],
                         open=float(row["stck_oprc"]),
                         high=float(row["stck_hgpr"]),
@@ -526,12 +545,54 @@ class KISClient(MarketDataClient):
                         close=float(row["stck_clpr"]),
                         volume=int(float(row["acml_vol"])),
                     )
+                except (KeyError, ValueError, TypeError):
+                    continue
+                if bar.date not in bars_by_date:
+                    bars_by_date[bar.date] = bar
+                    new_dates += 1
+
+            # 빈 페이지(또는 이전 페이지와 완전히 겹치는 페이지)는 상장일 이전 등
+            # 더 가져올 데이터가 없다는 뜻이므로 페이지네이션을 멈춘다.
+            if new_dates == 0:
+                break
+            if len(bars_by_date) >= count:
+                break
+
+            window_end = window_start - timedelta(days=1)
+            time.sleep(_REQUEST_INTERVAL_SEC)
+
+        bars = sorted(bars_by_date.values(), key=lambda b: b.date)
+        return bars[-count:]
+
+    # ---- 투자자별 순매수 이력 (스크리너의 연속 순매수 계산용) -------------------
+
+    def fetch_investor_history(self, stock_code: str) -> list[RawInvestorFlow] | None:
+        """inquire-investor는 한 번의 호출로 최근 수 영업일치 투자자별 순매수를
+        함께 준다(output이 여러 행, 최신일이 첫 행) - _fetch_investor()는 이 중
+        최신 행만 쓰지만, 스크리너는 "연속 순매수 며칠째인지"를 봐야 하므로 전체
+        이력을 그대로 반환한다."""
+        rows = self._get_ranked(
+            "/uapi/domestic-stock/v1/quotations/inquire-investor",
+            _INVESTOR_TR_ID,
+            {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": stock_code},
+        )
+        if not rows:
+            return None
+
+        flows: list[RawInvestorFlow] = []
+        for row in rows:
+            try:
+                flows.append(
+                    RawInvestorFlow(
+                        date=row["stck_bsop_date"],
+                        foreign_net_buy=float(row["frgn_ntby_tr_pbmn"]) * _INVESTOR_UNIT_MULTIPLIER,
+                        institution_net_buy=float(row["orgn_ntby_tr_pbmn"]) * _INVESTOR_UNIT_MULTIPLIER,
+                        individual_net_buy=float(row["prsn_ntby_tr_pbmn"]) * _INVESTOR_UNIT_MULTIPLIER,
+                    )
                 )
             except (KeyError, ValueError, TypeError):
                 continue
-
-        bars.sort(key=lambda b: b.date)
-        return bars[-count:]
+        return flows or None
 
     # ---- 유니버스 밖 종목 단건 조회 -------------------------------------------
 

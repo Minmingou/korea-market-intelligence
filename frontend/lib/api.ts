@@ -11,6 +11,7 @@ import type {
   MoverCategory,
   MoverCategoryResult,
   NewsList,
+  ScreenerResult,
   Sector,
   Stock,
   StockBrief,
@@ -111,6 +112,14 @@ export function searchStocks(query: string, limit?: number): Promise<StockSearch
   const search = new URLSearchParams({ q: query });
   if (limit) search.set("limit", String(limit));
   return apiGet(`/api/stocks/search?${search.toString()}`);
+}
+
+export function getScreener(params?: { market?: Market; limit?: number }): Promise<ScreenerResult> {
+  const search = new URLSearchParams();
+  if (params?.market) search.set("market", params.market);
+  if (params?.limit) search.set("limit", String(params.limit));
+  const qs = search.toString();
+  return apiGet(`/api/screener${qs ? `?${qs}` : ""}`);
 }
 
 export function getStockChart(

@@ -207,3 +207,30 @@ def test_stock_chart_endpoint_unknown_stock_returns_404(client):
 def test_stock_chart_endpoint_rejects_invalid_period(client):
     res = client.get("/api/stocks/005930/chart", params={"period": "X"})
     assert res.status_code == 422
+
+
+def test_screener_endpoint_returns_ranked_candidates(client):
+    res = client.get("/api/screener", params={"limit": 10})
+    assert res.status_code == 200
+    body = res.json()
+    assert set(body) == {"items", "candidate_pool_size", "updated_at", "data_source"}
+    assert body["candidate_pool_size"] >= 0
+    assert len(body["items"]) <= 10
+
+    scores = [item["score"] for item in body["items"]]
+    assert scores == sorted(scores, reverse=True)  # 점수 내림차순 정렬
+    for item in body["items"]:
+        assert item["score"] >= 1  # 점수 1점 미만은 결과에서 제외되어야 함
+        assert len(item["signals"]) >= 1  # 점수가 있으면 근거 신호도 함께 와야 함
+
+
+def test_screener_endpoint_respects_market_filter(client):
+    res = client.get("/api/screener", params={"market": "KOSPI", "limit": 10})
+    assert res.status_code == 200
+    for item in res.json()["items"]:
+        assert item["market"] == "KOSPI"
+
+
+def test_screener_endpoint_rejects_limit_over_max(client):
+    res = client.get("/api/screener", params={"limit": 51})
+    assert res.status_code == 422

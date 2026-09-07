@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 import httpx
 import pytest
 
@@ -536,6 +538,106 @@ def test_fetch_daily_chart_returns_bars_sorted_ascending_by_date(kis_client_with
     assert [b.date for b in bars] == ["20260904", "20260905"]
     assert bars[1].close == 105.0
     assert bars[1].volume == 1000
+
+
+def test_fetch_daily_chart_paginates_past_single_page_limit(monkeypatch, tmp_path):
+    # KIS 기간별시세 API는 한 번의 호출로 최대 100건까지만 주므로, count=150처럼
+    # 한 페이지를 넘는 요청은 날짜 구간을 뒤로 밀어가며 여러 번 호출해 이어붙여야
+    # 한다 (STEP 16: "차트가 최근 3개월치만 보인다" 버그 수정).
+    monkeypatch.setattr(settings, "kis_app_key", "test-key")
+    monkeypatch.setattr(settings, "kis_app_secret", "test-secret")
+    monkeypatch.setattr("app.clients.kis_client._TOKEN_CACHE_PATH", tmp_path / "kis_token_cache.json")
+    monkeypatch.setattr("app.clients.kis_client.time.sleep", lambda _seconds: None)
+
+    call_count = 0
+
+    def _page(start_date: str, n: int) -> list[dict]:
+        base = datetime.strptime(start_date, "%Y%m%d")
+        return [
+            {
+                "stck_bsop_date": (base + timedelta(days=i)).strftime("%Y%m%d"),
+                "stck_oprc": "100",
+                "stck_hgpr": "110",
+                "stck_lwpr": "95",
+                "stck_clpr": "105",
+                "acml_vol": "1000",
+            }
+            for i in range(n)
+        ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        path = request.url.path
+        if path == "/oauth2/tokenP":
+            return httpx.Response(200, json={"access_token": "fake-token", "expires_in": 86400})
+        if path == "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice":
+            call_count += 1
+            if call_count == 1:
+                output2 = _page("20260601", 120)
+            elif call_count == 2:
+                output2 = _page("20260101", 120)
+            else:
+                output2 = []  # 상장일 이전 -> 더 가져올 데이터 없음
+            return httpx.Response(
+                200, json={"rt_cd": "0", "msg1": "OK", "output1": {}, "output2": output2}
+            )
+        raise AssertionError(f"unexpected path: {path}")
+
+    client = KISClient()
+    client._http = httpx.Client(base_url=settings.kis_base_url, transport=httpx.MockTransport(handler))
+
+    bars = client.fetch_daily_chart("005930", "D", 150)
+
+    assert bars is not None
+    assert len(bars) == 150
+    assert call_count == 2  # 150건을 채우는 데 필요한 만큼만 호출하고 멈춘다
+    dates = [b.date for b in bars]
+    assert dates == sorted(dates)  # 오름차순 정렬
+
+
+def test_fetch_daily_chart_stops_pagination_on_empty_page(monkeypatch, tmp_path):
+    # 상장일 이전 등으로 더 가져올 데이터가 없을 때(빈 페이지)는, count를 다 못
+    # 채웠어도 무한 재시도하지 않고 지금까지 모은 만큼만 반환한다.
+    monkeypatch.setattr(settings, "kis_app_key", "test-key")
+    monkeypatch.setattr(settings, "kis_app_secret", "test-secret")
+    monkeypatch.setattr("app.clients.kis_client._TOKEN_CACHE_PATH", tmp_path / "kis_token_cache.json")
+    monkeypatch.setattr("app.clients.kis_client.time.sleep", lambda _seconds: None)
+
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        path = request.url.path
+        if path == "/oauth2/tokenP":
+            return httpx.Response(200, json={"access_token": "fake-token", "expires_in": 86400})
+        if path == "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice":
+            call_count += 1
+            if call_count == 1:
+                output2 = [
+                    {
+                        "stck_bsop_date": "20260905",
+                        "stck_oprc": "100",
+                        "stck_hgpr": "110",
+                        "stck_lwpr": "95",
+                        "stck_clpr": "105",
+                        "acml_vol": "1000",
+                    }
+                ]
+            else:
+                output2 = []
+            return httpx.Response(
+                200, json={"rt_cd": "0", "msg1": "OK", "output1": {}, "output2": output2}
+            )
+        raise AssertionError(f"unexpected path: {path}")
+
+    client = KISClient()
+    client._http = httpx.Client(base_url=settings.kis_base_url, transport=httpx.MockTransport(handler))
+
+    bars = client.fetch_daily_chart("005930", "D", 2000)  # 훨씬 많이 요청해도
+
+    assert bars is not None
+    assert len(bars) == 1  # 실제로 있는 만큼만 반환
+    assert call_count == 2  # 빈 페이지 한 번 확인하고 바로 멈춤
 
 
 def test_fetch_single_stock_fills_name_and_market_from_stock_master(kis_client_with_rank_transport):

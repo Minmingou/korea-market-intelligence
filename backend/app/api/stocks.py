@@ -3,6 +3,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.clients.market_data_client import MAX_CHART_COUNT
 from app.database import get_db
 from app.schemas.stock import MoverCategoryOut, StockChartOut, StockOut, StockSearchOut
 from app.services import stock_service
@@ -78,12 +79,16 @@ def get_stock(stock_code: str, db: Session = Depends(get_db)) -> StockOut:
     "/{stock_code}/chart",
     response_model=StockChartOut,
     summary="종목 기간별 시세(차트)",
-    description="종목코드로 일/주/월/년봉 OHLCV를 조회한다 (캔들차트/이동평균선 계산용).",
+    description=(
+        "종목코드로 일/주/월/년봉 OHLCV를 조회한다 (캔들차트/이동평균선 계산용). "
+        f"count가 100을 넘으면(최대 {MAX_CHART_COUNT}) 실 KIS 모드에서는 여러 번 "
+        "나눠 호출(페이지네이션)해 채우며, 상장일 이전에 도달하면 그 전까지만 반환한다."
+    ),
 )
 def get_stock_chart(
     stock_code: str,
     period: Literal["D", "W", "M", "Y"] = "D",
-    count: int = Query(100, ge=1, le=100),
+    count: int = Query(100, ge=1, le=MAX_CHART_COUNT),
 ) -> StockChartOut:
     chart = stock_service.get_daily_chart(stock_code, period=period, count=count)
     if chart is None:

@@ -133,7 +133,11 @@ export default function StockChart({ stockCode }: { stockCode: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    getStockChart(stockCode, { period, count: 100 })
+    // count를 넉넉하게 요청하면(백엔드가 상장일 이전 등 더 가져올 데이터가 없을
+    // 때까지 페이지네이션해서 채운다) "최근 3개월치만 보인다"는 제한 없이 종목의
+    // 전체 시세 이력을 보여줄 수 있다. 기존 봉은 새 데이터가 도착할 때까지 그대로
+    // 둔다(기간 전환 시 화면이 비어 보이지 않도록).
+    getStockChart(stockCode, { period, count: 2000 })
       .then((chart) => {
         if (cancelled) return;
         setBars(chart.items);
@@ -210,7 +214,10 @@ export default function StockChart({ stockCode }: { stockCode: string }) {
           차트 데이터를 불러올 수 없습니다 (N/A).
         </p>
       )}
-      <div ref={containerRef} className={error ? "hidden" : ""} />
+      {!error && bars === null && (
+        <p className="p-4 text-sm text-neutral-500">전체 시세 이력을 불러오는 중...</p>
+      )}
+      <div ref={containerRef} className={error || bars === null ? "hidden" : ""} />
     </section>
   );
 }

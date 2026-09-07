@@ -2,6 +2,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 
+# 종목 차트에서 요청할 수 있는 최대 봉 개수. KIS 기간별시세 API는 한 번의 호출로
+# 최대 100건까지만 반환하므로, 이보다 많이 요청하면 KISClient가 날짜 구간을 뒤로
+# 밀어가며 여러 번 나눠 호출(페이지네이션)해서 채운다 (일봉 기준 약 8년치, 상장일
+# 이전까지 도달하면 그 전에 멈춘다).
+MAX_CHART_COUNT = 2000
+
 
 @dataclass
 class RawStock:
@@ -37,6 +43,17 @@ class RawDailyBar:
     low: float
     close: float
     volume: int
+
+
+@dataclass
+class RawInvestorFlow:
+    """하루치 투자자별 순매수 거래대금(원). 여러 날짜분을 리스트로 모으면 "N일
+    연속 순매수" 같은 스트릭 계산에 쓸 수 있다 - index 0이 가장 최신 날짜다."""
+
+    date: str  # YYYYMMDD
+    foreign_net_buy: float | None
+    institution_net_buy: float | None
+    individual_net_buy: float | None
 
 
 @dataclass
@@ -84,4 +101,9 @@ class MarketDataClient(ABC):
 
     def fetch_single_stock(self, stock_code: str) -> RawStock | None:
         """종목 유니버스에 없는 임의의 종목코드 하나를 즉시 조회한다. 지원하지 않으면 None."""
+        return None
+
+    def fetch_investor_history(self, stock_code: str) -> list[RawInvestorFlow] | None:
+        """종목의 최근 N영업일 투자자별(외국인/기관) 순매수 이력을 조회한다(최신일이
+        index 0). 스크리너의 "연속 순매수 일수" 계산에 쓰인다. 지원하지 않으면 None."""
         return None

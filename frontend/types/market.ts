@@ -218,3 +218,26 @@ export interface StockChart {
   data_source: string;
   updated_at: string;
 }
+
+export interface ScreenerCandidate {
+  stock_code: string;
+  stock_name: string;
+  market: Market;
+  price: number;
+  change_rate: number;
+  foreign_net_buy: number | null;
+  institution_net_buy: number | null;
+  foreign_streak_days: number;
+  institution_streak_days: number;
+  ma_aligned: boolean;
+  volume_ratio: number | null;
+  score: number;
+  signals: string[];
+}
+
+export interface ScreenerResult {
+  items: ScreenerCandidate[];
+  candidate_pool_size: number;
+  updated_at: string;
+  data_source: string;
+}

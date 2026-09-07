@@ -9,6 +9,7 @@ import type {
   MoneyFlow,
   MoverCategory,
   MoverCategoryResult,
+  ScreenerResult,
   Sector,
   Stock,
 } from "@/types/market";
@@ -43,6 +44,7 @@ import {
   getMarketMovers,
   getMarketOverview,
   getMoneyFlow,
+  getScreener,
   getSectors,
   getStocks,
 } from "@/lib/api";
@@ -56,6 +58,7 @@ const mockedGetMoneyFlow = vi.mocked(getMoneyFlow);
 const mockedGetMarketBrief = vi.mocked(getMarketBrief);
 const mockedGetMarketEvents = vi.mocked(getMarketEvents);
 const mockedGetMarketMovers = vi.mocked(getMarketMovers);
+const mockedGetScreener = vi.mocked(getScreener);
 
 const MOVER_CATEGORIES: MoverCategory[] = [
   "top_gainers",
@@ -176,6 +179,13 @@ function moverResult(category: MoverCategory): MoverCategoryResult {
   return { category, items: [], updated_at: "2026-09-07T00:00:00Z", data_source: "mock" };
 }
 
+const screenerResult: ScreenerResult = {
+  items: [],
+  candidate_pool_size: 0,
+  updated_at: "2026-09-07T00:00:00Z",
+  data_source: "mock",
+};
+
 function mockAllSucceed() {
   mockedGetMarketOverview.mockResolvedValue(overview);
   mockedGetStocks.mockResolvedValue([stock("005930", "삼성전자")]);
@@ -183,6 +193,7 @@ function mockAllSucceed() {
   mockedGetMoneyFlow.mockResolvedValue(moneyFlow);
   mockedGetMarketBrief.mockResolvedValue(brief);
   mockedGetMarketEvents.mockResolvedValue(events);
+  mockedGetScreener.mockResolvedValue(screenerResult);
   mockedGetMarketMovers.mockImplementation((category) => Promise.resolve(moverResult(category)));
 }
 

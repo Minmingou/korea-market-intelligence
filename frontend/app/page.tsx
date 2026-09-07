@@ -6,6 +6,7 @@ import MarketMovers from "@/components/MarketMovers";
 import MarketOverview from "@/components/MarketOverview";
 import MoneyFlow from "@/components/MoneyFlow";
 import RefreshButton from "@/components/RefreshButton";
+import Screener from "@/components/Screener";
 import SearchBar from "@/components/SearchBar";
 import SectorTable from "@/components/SectorTable";
 import {
@@ -14,6 +15,7 @@ import {
   getMarketMovers,
   getMarketOverview,
   getMoneyFlow,
+  getScreener,
   getSectors,
   getStocks,
 } from "@/lib/api";
@@ -37,15 +39,17 @@ async function safe<T>(promise: Promise<T>): Promise<T | null> {
 }
 
 export default async function DashboardPage() {
-  const [overview, stocks, sectors, moneyFlow, brief, events, ...movers] = await Promise.all([
-    safe(getMarketOverview()),
-    safe(getStocks()),
-    safe(getSectors()),
-    safe(getMoneyFlow()),
-    safe(getMarketBrief()),
-    safe(getMarketEvents(10)),
-    ...MOVER_CATEGORIES.map((category) => safe(getMarketMovers(category, { limit: 10 }))),
-  ]);
+  const [overview, stocks, sectors, moneyFlow, brief, events, screener, ...movers] =
+    await Promise.all([
+      safe(getMarketOverview()),
+      safe(getStocks()),
+      safe(getSectors()),
+      safe(getMoneyFlow()),
+      safe(getMarketBrief()),
+      safe(getMarketEvents(10)),
+      safe(getScreener({ limit: 10 })),
+      ...MOVER_CATEGORIES.map((category) => safe(getMarketMovers(category, { limit: 10 }))),
+    ]);
 
   const moverResults = movers.filter((m) => m !== null);
 
@@ -106,6 +110,14 @@ export default async function DashboardPage() {
           </p>
         )}
       </div>
+
+      {screener ? (
+        <Screener data={screener} />
+      ) : (
+        <p className="border border-red-900 p-4 text-sm text-red-400">
+          Screener 데이터를 불러올 수 없습니다 (N/A).
+        </p>
+      )}
 
       {moverResults.length > 0 ? (
         <MarketMovers results={moverResults} />

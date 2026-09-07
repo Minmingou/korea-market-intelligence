@@ -8,7 +8,14 @@ from app.analysis.market_analysis import (
     calculate_market_cap,
     calculate_trading_value,
 )
-from app.clients.market_data_client import MarketDataClient, RawDailyBar, RawMarketIndex, RawStock
+from app.clients.market_data_client import (
+    MAX_CHART_COUNT,
+    MarketDataClient,
+    RawDailyBar,
+    RawInvestorFlow,
+    RawMarketIndex,
+    RawStock,
+)
 from app.clients.mock_universe import STOCK_UNIVERSE, TIER_AVG_VOLUME, TIER_MARKET_CAP
 
 BASE_INDEX_VALUE = {"KOSPI": 2650.0, "KOSDAQ": 850.0}
@@ -126,7 +133,7 @@ class MockMarketDataClient(MarketDataClient):
         if stock is None:
             return None
 
-        count = max(1, min(count, 100))
+        count = max(1, min(count, MAX_CHART_COUNT))
         period_code = period if period in self._PERIOD_STEP_DAYS else "D"
         step_days = self._PERIOD_STEP_DAYS[period_code]
 
@@ -170,3 +177,47 @@ class MockMarketDataClient(MarketDataClient):
 
     def fetch_single_stock(self, stock_code: str) -> RawStock | None:
         return next((s for s in self.fetch_stocks() if s.stock_code == stock_code), None)
+
+    _INVESTOR_HISTORY_DAYS = 20
+
+    def fetch_investor_history(self, stock_code: str) -> list[RawInvestorFlow] | None:
+        stock = next((s for s in self.fetch_stocks() if s.stock_code == stock_code), None)
+        if stock is None:
+            return None
+
+        # 종목코드로 시드를 고정해 새로고침해도 같은 이력이 나오게 한다 (fetch_daily_chart와
+        # 동일한 설계 - "재현 가능한 Mock" 원칙).
+        rng = random.Random(f"{stock_code}-investor-history")
+        today = datetime.now(timezone.utc)
+        trading_value = stock.trading_value or (stock.price * stock.volume)
+
+        # 오늘(index 0, 최신)은 실제 스냅샷과 값이 일치해야 Money Flow 등 다른 화면과
+        # 수치가 어긋나지 않는다.
+        flows = [
+            RawInvestorFlow(
+                date=today.strftime("%Y%m%d"),
+                foreign_net_buy=stock.foreign_net_buy,
+                institution_net_buy=stock.institution_net_buy,
+                individual_net_buy=stock.individual_net_buy,
+            )
+        ]
+
+        # 과거로 갈수록 "오늘과 같은 방향(순매수/순매도)"일 확률을 서서히 낮춰서,
+        # 스크리너가 실제로 걸릴 법한 짧은 연속 순매수 스트릭이 종종 나오게 한다
+        # (완전 무작위면 3일 연속 순매수 확률이 너무 낮아져 스크리너가 항상 비게 된다).
+        foreign_sign = 1 if (stock.foreign_net_buy or 0) >= 0 else -1
+        institution_sign = 1 if (stock.institution_net_buy or 0) >= 0 else -1
+        for i in range(1, self._INVESTOR_HISTORY_DAYS):
+            continue_prob = max(0.3, 0.85 - i * 0.05)
+            f_sign = foreign_sign if rng.random() < continue_prob else -foreign_sign
+            i_sign = institution_sign if rng.random() < continue_prob else -institution_sign
+            date = today - timedelta(days=i)
+            flows.append(
+                RawInvestorFlow(
+                    date=date.strftime("%Y%m%d"),
+                    foreign_net_buy=round(f_sign * trading_value * rng.uniform(0.05, 0.3), 2),
+                    institution_net_buy=round(i_sign * trading_value * rng.uniform(0.03, 0.2), 2),
+                    individual_net_buy=None,
+                )
+            )
+        return flows

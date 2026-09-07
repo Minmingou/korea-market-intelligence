@@ -1,8 +1,10 @@
 import Link from "next/link";
 import AiBrief from "@/components/AiBrief";
+import AutoRefresh from "@/components/AutoRefresh";
 import CompanyFinancials from "@/components/CompanyFinancials";
 import DisclosureList from "@/components/DisclosureList";
 import NewsList from "@/components/NewsList";
+import RefreshButton from "@/components/RefreshButton";
 import { getCompanyFinancials, getDisclosures, getNews, getStock, getStockBrief } from "@/lib/api";
 import { changeColorClass, formatChangeRate, formatKRW, formatTime } from "@/lib/format";
 
@@ -44,9 +46,13 @@ export default async function StockDetailPage({ params }: PageProps) {
 
   return (
     <main className="flex-1 space-y-6 p-4 font-mono lg:p-6">
-      <Link href="/" className="text-xs text-neutral-500 hover:text-neutral-300">
-        ← 대시보드로
-      </Link>
+      <AutoRefresh />
+      <div className="flex items-center justify-between">
+        <Link href="/" className="text-xs text-neutral-500 hover:text-neutral-300">
+          ← 대시보드로
+        </Link>
+        <RefreshButton />
+      </div>
 
       <header className="border border-neutral-800 p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -77,6 +83,14 @@ export default async function StockDetailPage({ params }: PageProps) {
         </p>
       </header>
 
+      {brief ? (
+        <AiBrief title="AI STOCK BRIEF" data={brief} />
+      ) : (
+        <p className="border border-red-900 p-4 text-sm text-red-400">
+          AI Stock Brief를 불러올 수 없습니다 (N/A).
+        </p>
+      )}
+
       {financials ? (
         <CompanyFinancials data={financials} />
       ) : (
@@ -98,14 +112,6 @@ export default async function StockDetailPage({ params }: PageProps) {
       ) : (
         <p className="border border-red-900 p-4 text-sm text-red-400">
           뉴스 데이터를 불러올 수 없습니다 (N/A).
-        </p>
-      )}
-
-      {brief ? (
-        <AiBrief title="AI STOCK BRIEF" data={brief} />
-      ) : (
-        <p className="border border-red-900 p-4 text-sm text-red-400">
-          AI Stock Brief를 불러올 수 없습니다 (N/A).
         </p>
       )}
     </main>

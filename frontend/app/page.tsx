@@ -1,8 +1,10 @@
 import AiBrief from "@/components/AiBrief";
+import AutoRefresh from "@/components/AutoRefresh";
 import MarketMap from "@/components/MarketMap";
 import MarketMovers from "@/components/MarketMovers";
 import MarketOverview from "@/components/MarketOverview";
 import MoneyFlow from "@/components/MoneyFlow";
+import RefreshButton from "@/components/RefreshButton";
 import SectorTable from "@/components/SectorTable";
 import {
   getMarketBrief,
@@ -45,12 +47,24 @@ export default async function DashboardPage() {
 
   return (
     <main className="flex-1 space-y-6 p-4 font-mono lg:p-6">
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight">KOREA MARKET INTELLIGENCE</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          KOSPI/KOSDAQ 시장 상황 · 자금 흐름 · 주도 업종/종목 한눈에 보기
-        </p>
+      <AutoRefresh />
+      <header className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">KOREA MARKET INTELLIGENCE</h1>
+          <p className="mt-1 text-sm text-neutral-500">
+            KOSPI/KOSDAQ 시장 상황 · 자금 흐름 · 주도 업종/종목 한눈에 보기
+          </p>
+        </div>
+        <RefreshButton />
       </header>
+
+      {brief ? (
+        <AiBrief title="AI MARKET BRIEF" data={brief} />
+      ) : (
+        <p className="border border-red-900 p-4 text-sm text-red-400">
+          AI Market Brief를 불러올 수 없습니다 (N/A).
+        </p>
+      )}
 
       {overview ? (
         <MarketOverview data={overview} />
@@ -91,14 +105,6 @@ export default async function DashboardPage() {
       ) : (
         <p className="border border-red-900 p-4 text-sm text-red-400">
           Market Movers 데이터를 불러올 수 없습니다 (N/A).
-        </p>
-      )}
-
-      {brief ? (
-        <AiBrief title="AI MARKET BRIEF" data={brief} />
-      ) : (
-        <p className="border border-red-900 p-4 text-sm text-red-400">
-          AI Market Brief를 불러올 수 없습니다 (N/A).
         </p>
       )}
     </main>

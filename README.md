@@ -2,7 +2,7 @@
 
 KOSPI/KOSDAQ 시장을 실시간에 가깝게 분석/시각화하는 웹 기반 금융 데이터 분석 플랫폼.
 
-> 현재 **STEP 9 (AI Market Brief)** 완료 상태입니다. 실제 기능은 이후 STEP에서 단계적으로 추가됩니다.
+> 현재 **STEP 10 (Dashboard 통합)** 완료 상태입니다. 실제 기능은 이후 STEP에서 단계적으로 추가됩니다.
 
 ## 기술 스택
 
@@ -33,11 +33,12 @@ korea-market-intelligence/
 │   └── .env.example
 ├── frontend/
 │   ├── app/
-│   │   ├── page.tsx             # Dashboard (Market Overview/Map/Sector/Flow/Movers)
-│   │   ├── stocks/[code]/       # 종목 상세 페이지 (재무제표/공시 STEP 7, 뉴스 STEP 8, 브리핑 STEP 9)
+│   │   ├── page.tsx             # Dashboard (AI Brief 히어로 + Market Overview/Map/Sector/Flow/Movers)
+│   │   ├── stocks/[code]/       # 종목 상세 페이지 (브리핑 STEP 9 히어로, 재무제표/공시 STEP 7, 뉴스 STEP 8)
 │   │   └── layout.tsx
 │   ├── components/              # MarketOverview/MarketMap/SectorTable/MoneyFlow/MarketMovers/
-│   │                             # CompanyFinancials/DisclosureList/NewsList/AiBrief
+│   │                             # CompanyFinancials/DisclosureList/NewsList/AiBrief/
+│   │                             # RefreshButton/AutoRefresh (STEP 10)
 │   ├── lib/api.ts, format.ts    # Backend API 호출 및 포맷 헬퍼
 │   └── types/market.ts          # 공용 타입
 └── data/                        # SQLite DB 파일 위치
@@ -175,6 +176,30 @@ korea-market-intelligence/
   없음 처리, 조사 선택 정확성, 팩토리의 Mock/미구현 분기를 검증한다. `conftest.py`는
   `USE_MOCK_LLM`도 항상 `true`로 강제한다.
 
+## Dashboard 통합 (STEP 10)
+
+STEP 1~9는 기능을 하나씩 세로로 쌓기만 했고, 화면 간 흐름이나 데이터 신선도는 다루지 않았다.
+STEP 10은 새 API를 추가하지 않고 이미 있는 화면 두 개(대시보드/종목 상세)를 하나의 제품처럼
+묶는 데에 집중했다.
+
+- **AI 브리핑을 히어로 위치로 이동**: `AiBrief`는 원래 각 페이지 맨 아래에 있었다. 브리핑은
+  나머지 섹션(지수/업종/재무/공시/뉴스)의 요약이므로, 요약을 먼저 보고 필요하면 아래로
+  내려가 근거를 확인하는 순서가 자연스럽다고 판단해 헤더 바로 아래로 옮겼다.
+- **`RefreshButton`**: 대시보드/종목 상세 헤더에 배치된 클라이언트 컴포넌트. 클릭하면
+  `router.refresh()`로 서버 컴포넌트를 다시 렌더해 최신 Mock 시세를 가져온다. 마지막
+  새로고침 시각은 최초 클릭 전까지 표시하지 않는다 (SSR과 클라이언트의 최초 렌더 시각이
+  달라 하이드레이션 불일치가 나는 것을 피하기 위함).
+- **`AutoRefresh`**: 화면에 아무것도 그리지 않는 클라이언트 컴포넌트. 마운트되면 60초 간격으로
+  `router.refresh()`를 호출해, 사용자가 아무것도 하지 않아도 "실시간에 가깝게" 데이터가
+  갱신되도록 한다. `lib/api.ts`의 모든 GET 요청이 `cache: "no-store"`이므로 새로고침될 때마다
+  최신 Mock 시세를 다시 받아온다.
+- **종목 간 이동 경로 재확인**: Market Map(타일 클릭), Market Movers(종목명 링크)는 이미
+  `/stocks/{code}`로 연결되어 있었다. Sector Table은 업종 단위 집계라 종목 상세로 연결할
+  대상이 없어 그대로 두었다.
+- 새 백엔드 로직은 없으므로 기존 93개 테스트에는 변화가 없다. 프론트엔드는 `tsc --noEmit`,
+  `eslint`로 검증했고, dev 서버를 띄워 대시보드/종목 상세 페이지의 SSR 응답에서 브리핑이
+  각 섹션보다 먼저 나오는지, 새로고침 버튼이 렌더되는지 확인했다.
+
 ## API 엔드포인트
 
 | Method | Path | 설명 |
@@ -278,6 +303,6 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - [x] STEP 7 — DART 연동
 - [x] STEP 8 — News (Mock만 구현, 실 API 연동은 이후 STEP)
 - [x] STEP 9 — AI Market Brief (Mock만 구현, 실 LLM 연동은 이후 STEP)
-- [ ] STEP 10 — Dashboard 통합
+- [x] STEP 10 — Dashboard 통합
 - [ ] STEP 11 — 테스트
 - [ ] STEP 12 — 문서화

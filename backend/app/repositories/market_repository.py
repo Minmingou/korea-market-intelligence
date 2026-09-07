@@ -1,0 +1,48 @@
+from datetime import date, timezone
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.clients.market_data_client import RawMarketIndex
+from app.models.market import MarketIndex
+
+
+class MarketRepository:
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def is_fresh(self, as_of: date) -> bool:
+        stmt = select(MarketIndex).where(MarketIndex.date == as_of).limit(1)
+        return self.db.execute(stmt).scalar_one_or_none() is not None
+
+    def upsert_many(self, raw_indices: list[RawMarketIndex]) -> None:
+        for raw in raw_indices:
+            as_of = raw.fetched_at.astimezone(timezone.utc).date()
+            stmt = select(MarketIndex).where(
+                MarketIndex.date == as_of, MarketIndex.market == raw.market
+            )
+            row = self.db.execute(stmt).scalar_one_or_none()
+            if row is None:
+                row = MarketIndex(date=as_of, market=raw.market)
+                self.db.add(row)
+
+            row.index_value = raw.index_value
+            row.change = raw.change
+            row.change_rate = raw.change_rate
+            row.foreign_net_buy = raw.foreign_net_buy
+            row.institution_net_buy = raw.institution_net_buy
+            row.individual_net_buy = raw.individual_net_buy
+            row.total_trading_value = raw.total_trading_value
+            row.data_source = raw.data_source
+            row.updated_at = raw.fetched_at
+
+        self.db.commit()
+
+    def get_latest(self, market: str) -> MarketIndex | None:
+        stmt = (
+            select(MarketIndex)
+            .where(MarketIndex.market == market)
+            .order_by(MarketIndex.date.desc())
+            .limit(1)
+        )
+        return self.db.execute(stmt).scalar_one_or_none()

@@ -1,0 +1,27 @@
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+.env.local
+!*.env.example
+
+# Database
+data/*.db
+data/*.sqlite3
+
+# KIS 액세스 토큰 캐시 (실제 자격 증명이 담겨 있으므로 절대 커밋하지 않는다)
+data/kis_token_cache.json
+
+# DART corp_code 매핑 캐시 (전체 상장/비상장 회사 목록 다운로드본, 커밋할 필요 없음)
+data/dart_corp_code_map.json
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# OS
+.DS_Store

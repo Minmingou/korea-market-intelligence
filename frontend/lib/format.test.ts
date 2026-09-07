@@ -10,7 +10,7 @@ import {
 
 describe("changeColorClass", () => {
   it("returns neutral color for null (N/A)", () => {
-    expect(changeColorClass(null)).toBe("text-neutral-600");
+    expect(changeColorClass(null)).toBe("text-neutral-400");
   });
 
   it("returns red for a positive change", () => {

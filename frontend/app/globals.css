@@ -1,26 +1,16 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+/* 이 앱은 라이트/다크 토글 없이 항상 다크 테마다(app/layout.tsx의 <body>가
+   bg-black text-neutral-100을 직접 지정한다). Tailwind v4는 유틸리티 클래스를
+   @layer 안에 넣는데, CSS 캐스케이드 레이어 규칙상 레이어 밖의 평범한 규칙은
+   레이어 안의 규칙보다 항상 우선한다 - 예전에 여기 있던 `body { background:
+   var(--background) }`(라이트/다크 미디어쿼리 기반) 규칙이 레이어 밖에 있어서,
+   detail(레이어 안)이 더 높은 bg-black 유틸리티를 항상 이겨버렸다. 그 결과 실제
+   배경은 흰색인데 옅은 회색 글자(다크 배경을 전제로 고른 색)가 그 위에 그대로
+   남아 거의 안 보이는 문제가 있었다. 원인이 된 규칙을 아예 제거해 body의 실제
+   배경/글자색은 layout.tsx의 Tailwind 클래스가 그대로 결정하게 한다. */

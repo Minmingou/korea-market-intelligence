@@ -14,7 +14,7 @@ function IndexCard({
 }) {
   return (
     <div className="border border-neutral-800 p-4">
-      <div className="text-xs text-neutral-500">{label}</div>
+      <div className="text-xs text-neutral-300">{label}</div>
       <div className="mt-1 text-2xl font-semibold tabular-nums">
         {value.toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
       </div>
@@ -29,7 +29,7 @@ function IndexCard({
 function FlowCard({ label, value }: { label: string; value: number | null }) {
   return (
     <div className="border border-neutral-800 p-4">
-      <div className="text-xs text-neutral-500">{label}</div>
+      <div className="text-xs text-neutral-300">{label}</div>
       <div className={`mt-1 text-xl font-semibold tabular-nums ${changeColorClass(value)}`}>
         {formatKRW(value)}
       </div>
@@ -58,7 +58,7 @@ export default function MarketOverview({ data }: { data: MarketOverviewData }) {
         <FlowCard label="개인 순매수" value={data.individual_net_buy_total} />
         <FlowCard label="총 거래대금" value={data.total_trading_value} />
       </div>
-      <p className="mt-2 text-xs text-neutral-600">
+      <p className="mt-2 text-xs text-neutral-400">
         기준 시각: {formatTime(data.updated_at)} · {data.data_source === "mock" ? "MOCK DATA" : "실시간"}
       </p>
     </section>

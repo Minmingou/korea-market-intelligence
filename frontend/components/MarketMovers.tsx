@@ -22,7 +22,7 @@ function valueForCategory(category: MoverCategory, stock: MoverCategoryResult["i
       return stock.volume_ratio !== null ? (
         <span className="text-amber-400">{stock.volume_ratio.toFixed(2)}x</span>
       ) : (
-        <span className="text-neutral-600">N/A</span>
+        <span className="text-neutral-400">N/A</span>
       );
     case "foreign_net_buy":
       return <span className={changeColorClass(stock.foreign_net_buy)}>{formatKRW(stock.foreign_net_buy)}</span>;
@@ -46,13 +46,13 @@ function MoverCard({ result }: { result: MoverCategoryResult }) {
               href={`/stocks/${stock.stock_code}`}
               className="truncate text-neutral-200 hover:underline"
             >
-              <span className="mr-1 text-neutral-600">{idx + 1}</span>
+              <span className="mr-1 text-neutral-400">{idx + 1}</span>
               {stock.stock_name}
             </Link>
             <span className="shrink-0 tabular-nums">{valueForCategory(result.category, stock)}</span>
           </li>
         ))}
-        {result.items.length === 0 && <li className="text-neutral-600">데이터 없음</li>}
+        {result.items.length === 0 && <li className="text-neutral-400">데이터 없음</li>}
       </ol>
     </div>
   );

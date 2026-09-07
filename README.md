@@ -7,7 +7,7 @@ KOSPI/KOSDAQ 시장을 실시간에 가깝게 분석/시각화하는 웹 기반 
 ## 기술 스택
 
 - Backend: Python 3.12, FastAPI, SQLAlchemy, Pydantic, httpx
-- Frontend: Next.js (App Router), React, TypeScript, Tailwind CSS
+- Frontend: Next.js (App Router), React, TypeScript, Tailwind CSS, recharts, lightweight-charts(캔들차트)
 - Database: SQLite (개발) → PostgreSQL (확장 예정)
 
 ## 폴더 구조
@@ -21,7 +21,8 @@ korea-market-intelligence/
 │   │   ├── database.py      # SQLAlchemy 엔진/세션
 │   │   ├── api/                # FastAPI 라우터 (market/stocks/sectors/flows/company/events)
 │   │   ├── clients/             # 시세/기업/뉴스/브리핑 데이터 소스 (Mock/실제 KIS·DART 공용
-│   │   │                         # 인터페이스, 뉴스·LLM 브리핑은 STEP 8/9 기준 Mock만 구현)
+│   │   │                         # 인터페이스, 뉴스·LLM 브리핑은 STEP 8/9 기준 Mock만 구현;
+│   │   │                         # stock_master.py는 검색/Movers용 전종목 코드 마스터)
 │   │   ├── services/            # 비즈니스 로직 (Refresh-if-stale, 스키마 조립)
 │   │   ├── repositories/        # DB 접근 계층 (Stock/MarketIndex/CompanyFinancials upsert·조회)
 │   │   ├── models/               # SQLAlchemy 모델 (Stock, MarketIndex, CompanyFinancials)
@@ -39,10 +40,11 @@ korea-market-intelligence/
 │   ├── components/              # MarketOverview/MarketMap/SectorTable/MoneyFlow/MarketMovers/
 │   │                             # CompanyFinancials/DisclosureList/NewsList/AiBrief/MarketEvents/
 │   │                             # RefreshButton/AutoRefresh (STEP 10, *.test.tsx는 STEP 11+)
+│   │                             # SearchBar/StockChart (전종목 검색·캔들차트, 로드맵 완료 기준 보완)
 │   ├── lib/api.ts, format.ts    # Backend API 호출 및 포맷 헬퍼 (format.test.ts는 STEP 11)
 │   ├── types/market.ts          # 공용 타입
 │   └── vitest.config.mts        # Vitest 설정 (STEP 11)
-└── data/                        # SQLite DB 파일 위치
+└── data/                        # SQLite DB 파일 + KIS 토큰/종목 마스터 캐시 위치
 ```
 
 ## 아키텍처 (STEP 12)
@@ -422,6 +424,71 @@ API 오류 UI" 다섯 항목을 기준으로 보면 부족했다.
   `DartClient` 인스턴스에서도 네트워크를 타지 않는지 실패하는 트랜스포트로 확인)/캐시 만료 후
   재조회 6개를 추가했다 (총 123개).
 
+## 전종목 Movers/검색/차트 (사용자 피드백 반영)
+
+사용자가 대시보드를 직접 써보고 세 가지를 지적했다: (1) 상승률/하락률 TOP10에 상한가/하한가
+종목이 안 보인다 - `mock_universe.STOCK_UNIVERSE`(약 70종목)로만 순위를 계산했기 때문이다,
+(2) 기업 검색창이 없다, (3) 종목별 캔들/이동평균 차트가 없다.
+
+- **Market Movers가 전체 시장 기준으로 바뀜**: KIS는 전체 종목을 한 번에 내려주는 API가 없어
+  `fetch_stocks()`는 여전히 큐레이션된 유니버스만 순회하지만, KIS "순위분석" API(등락률
+  `/ranking/fluctuation`, 거래량순위 `/quotations/volume-rank`, 국내기관_외국인
+  매매종목가집계 `/quotations/foreign-institution-total`)는 종목 유니버스와 무관하게 시장
+  전체를 대상으로 한다. `MarketDataClient.fetch_movers()`를 새로 추가해 `top_gainers`/
+  `top_losers`/`top_trading_value`/`foreign_net_buy`/`institution_net_buy`는 이 API들로
+  채우고, `volume_surge`(순위 API의 "거래증가율" 응답이 ETN/ETF 이상치에 지배돼 신뢰할 수
+  없음)만 기존 큐레이션 유니버스 기반 계산으로 폴백한다(Mock 클라이언트는 기본 구현이 항상
+  `None`을 반환해 전부 폴백 - Mock 유니버스 자체가 이미 "전체"이므로 문제없다).
+  - **`fid_input_cnt_1`(조회 개수) 파라미터 함정**: 라이브 호출로 확인한 결과, 이 값이 문서
+    설명과 달리 단순 개수 제한이 아니라 서버가 반환하는 30건짜리 결과 "묶음" 자체를 바꿨다
+    ("0"을 주면 오늘의 최대 하락 종목 -29.98%가 응답에서 아예 빠지고, "5"/"10"/"30"을 주면
+    포함됨). 값 하나로는 상/하한가를 안정적으로 잡을 수 없어, `{5, 10, 30}` 세 값으로 나눠
+    호출한 뒤 합쳐서 서버가 매긴 순서를 신뢰하지 않고 검증된 필드(`prdy_ctrt`)로 직접
+    재정렬한다.
+  - `FID_TRGT_EXLS_CLS_CODE`로 ETF/ETN을 제외해, 레버리지/인버스 상품이 상하위권을 뒤덮지
+    않고 개별 종목(주식) 위주로 나오게 했다.
+  - 순위 API로 채운 종목은 업종/거래대금(등락률·순매수 카테고리)/시가총액을 제공하지 않아
+    `StockOut.sector`/`market_cap`/`trading_value`가 `null`일 수 있다 - 값을 지어내지 않고
+    N/A로 남긴다(`Stock` 프론트 타입도 이에 맞춰 nullable로 변경).
+- **종목 검색(`GET /api/stocks/search?q=`)**: KOSPI+KOSDAQ 전종목(약 4,400개, ETF/ETN
+  포함) 코드/종목명 검색. KIS API에는 종목명 검색 엔드포인트가 없어, KIS 공식 예제
+  (`stocks_info/kis_{kospi,kosdaq}_code_mst.py`)와 같은 방식으로 정적 마스터 파일
+  (`kospi_code.mst.zip`/`kosdaq_code.mst.zip`, cp949 고정폭 텍스트)을 내려받아 코드/종목명만
+  추출한다(`app/clients/stock_master.py`). 하루 단위로 `data/stock_master.json`에 캐시하고,
+  Movers가 시장 전체 API로 채워질 때 종목코드 -> 시장(KOSPI/KOSDAQ) 역조회에도 이 목록을
+  쓴다. 코드 완전일치 -> 이름 시작 -> 이름 포함 -> 코드 포함 순으로 우선순위를 둔다.
+- **유니버스 밖 종목 단건 조회**: 검색으로 큐레이션된 유니버스 밖 종목(예: 삼성전자우)을
+  선택해도 상세 페이지가 404가 되지 않도록, `StockRepository`에 없으면
+  `MarketDataClient.fetch_single_stock()`으로 즉시 조회해 DB에 채운 뒤 반환한다(KIS는
+  `inquire-price` 단건 조회 + stock_master로 종목명/시장을 채움, Mock은 자체 유니버스에서
+  찾아 없으면 여전히 404).
+- **종목별 차트(`GET /api/stocks/{code}/chart?period=D&count=`)**: KIS
+  "국내주식기간별시세(일/주/월/년)"(`/quotations/inquire-daily-itemchartprice`)로 OHLCV를
+  받아온다. 실전계좌 기준 한 번의 호출로 최대 100건까지만 조회되는 제약이 있어 `count`를
+  100으로 캡핑한다. Mock은 종목코드+기간을 시드로 한 재현 가능한 랜덤워크 캔들을 생성하되,
+  마지막 봉의 종가는 대시보드에 보이는 현재가와 일치시킨다. 프론트엔드는
+  `lightweight-charts`로 캔들스틱 + MA5/MA20/MA60 + 거래량 히스토그램을 그리고, 일봉/주봉/
+  월봉 토글을 제공한다(`components/StockChart.tsx`).
+- 테스트: `test_kis_client.py`에 `fetch_movers`(카테고리별 5종 + `volume_surge` 폴백 확인)/
+  `fetch_daily_chart`/`fetch_single_stock` 7개, `test_stock_master.py`에 마스터 파일 파싱/
+  검색 우선순위 9개, `test_api.py`에 검색/차트 엔드포인트 6개를 추가했다(Backend 전체 154개).
+  프론트엔드는 `SearchBar.test.tsx` 3개를 추가했다(Frontend 전체 39개).
+
+### 다크 테마 대비(색상) 버그 수정
+
+사용자가 "글자가 옅은 흰색이라 잘 안 보인다"고 보고했다. 원인은 색상 값이 아니라 **CSS
+캐스케이드 레이어 우선순위**였다: `app/globals.css`가 Next.js 기본 템플릿에서 그대로 남아있던
+라이트/다크 미디어쿼리 기반 `body { background: var(--background); color: var(--foreground) }`
+규칙을 `@layer` 밖(언레이어드)에 두고 있었는데, Tailwind v4 유틸리티는 `@layer` 안에서
+생성되고, CSS 스펙상 언레이어드 규칙은 명시도와 무관하게 레이어 안의 규칙을 항상 이긴다. 그
+결과 `app/layout.tsx`가 `<body>`에 준 `bg-black text-neutral-100`이 항상 무시되고, 실제
+배경은 라이트 모드 기준 흰색인데 다크 배경을 전제로 고른 옅은 회색 글자가 그 위에 그대로
+남아 거의 안 보였다(라이트/다크 토글 UI 자체가 없는, 항상 다크인 앱이라 이 변수 기반
+스킴은 애초에 불필요했다). `globals.css`에서 이 규칙과 미사용 CSS 변수를 제거해 body의 배경/
+글자색을 `layout.tsx`의 Tailwind 클래스가 그대로 결정하게 했다. 여기에 더해 보조 텍스트에
+쓰인 `text-neutral-500`/`600`을 `300`/`400`으로 한 단계씩 올려 검은 배경 대비 대비율을
+높였다.
+
 ## API 엔드포인트
 
 | Method | Path | 설명 |
@@ -429,8 +496,10 @@ API 오류 UI" 다섯 항목을 기준으로 보면 부족했다.
 | GET | `/health` | 서버/DB 상태 확인 |
 | GET | `/api/market/overview` | KOSPI/KOSDAQ 지수 + 투자자별 순매수 + 총 거래대금 |
 | GET | `/api/stocks?market=&sort_by=` | 종목 목록 (Market Map/전체 조회용) |
-| GET | `/api/stocks/{code}` | 종목 상세 |
-| GET | `/api/stocks/movers?category=&market=&limit=` | Market Movers (top_gainers/top_losers/top_trading_value/volume_surge/foreign_net_buy/institution_net_buy) |
+| GET | `/api/stocks/search?q=&limit=` | 종목 검색 (KOSPI+KOSDAQ 전종목, 코드/종목명) |
+| GET | `/api/stocks/{code}` | 종목 상세 (유니버스 밖 종목은 단건 조회로 즉시 채움) |
+| GET | `/api/stocks/{code}/chart?period=&count=` | 종목 기간별 시세(일/주/월/년봉 OHLCV, 캔들차트용) |
+| GET | `/api/stocks/movers?category=&market=&limit=` | Market Movers - 전체 시장 기준(top_gainers/top_losers/top_trading_value/foreign_net_buy/institution_net_buy), volume_surge만 큐레이션 유니버스 기반 |
 | GET | `/api/sectors?market=&sort_by=` | 업종별 집계 |
 | GET | `/api/flows?market=&top_n=` | 투자자별 자금 흐름 (업종/종목 TOP N) |
 | GET | `/api/stocks/{code}/financials` | 기업 재무제표 + PER/PBR/ROE/EPS/BPS (STEP 7) |
@@ -480,8 +549,9 @@ python -m pytest -q
 DART 클라이언트 테스트(corp_code 매핑/재무제표 폴백/공시 파싱/재시도/캐싱), Mock 뉴스
 클라이언트 테스트(시드 안정성/팩토리 분기), Mock LLM 브리핑 클라이언트 테스트(문장 조립/N/A
 처리/조사 선택), Repository/Service 레이어 테스트(데이터 신선도 판단, 싱글플라이트 락,
-백그라운드 갱신 분기), DART Events 집계 테스트(정렬/개수 제한/부분 실패 처리)를 포함한다
-(총 132개, 전부 네트워크 Mock).
+백그라운드 갱신 분기), DART Events 집계 테스트(정렬/개수 제한/부분 실패 처리), 전체 시장
+Movers/차트/단건조회(`fetch_movers`/`fetch_daily_chart`/`fetch_single_stock`)와 종목 마스터
+파싱/검색 테스트를 포함한다 (총 154개, 전부 네트워크 Mock).
 
 ```bash
 cd frontend
@@ -489,8 +559,8 @@ npm test
 ```
 
 순수 유틸(`lib/format.ts`), 클라이언트 컴포넌트(`RefreshButton`, `AutoRefresh`, `MarketEvents`,
-`MarketMap`), Dashboard 조립 로직(`app/page.tsx`, API 부분 실패 시 섹션별 폴백 포함)을
-Vitest + Testing Library로 검증한다 (총 36개).
+`MarketMap`, `SearchBar`), Dashboard 조립 로직(`app/page.tsx`, API 부분 실패 시 섹션별 폴백
+포함)을 Vitest + Testing Library로 검증한다 (총 39개).
 
 ## 환경변수
 

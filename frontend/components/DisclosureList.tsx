@@ -10,7 +10,7 @@ export default function DisclosureList({ data }: { data: DisclosureListData }) {
     <section className="border border-neutral-800 p-3">
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold tracking-wide text-neutral-400">RECENT DISCLOSURES</h2>
-        <span className="text-xs text-neutral-600">
+        <span className="text-xs text-neutral-400">
           {data.data_source === "mock" ? "MOCK DATA" : "DART 전자공시"}
         </span>
       </div>
@@ -30,13 +30,13 @@ export default function DisclosureList({ data }: { data: DisclosureListData }) {
             ) : (
               <span className="truncate text-neutral-200">{item.report_nm}</span>
             )}
-            <span className="flex shrink-0 gap-3 text-xs text-neutral-500 tabular-nums">
+            <span className="flex shrink-0 gap-3 text-xs text-neutral-300 tabular-nums">
               <span className="hidden sm:inline">{item.flr_nm}</span>
               <span>{formatDisclosureDate(item.rcept_dt)}</span>
             </span>
           </li>
         ))}
-        {data.items.length === 0 && <li className="text-neutral-600">최근 공시 없음</li>}
+        {data.items.length === 0 && <li className="text-neutral-400">최근 공시 없음</li>}
       </ul>
     </section>
   );

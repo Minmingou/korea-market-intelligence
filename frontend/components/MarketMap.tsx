@@ -74,7 +74,7 @@ function TreemapTooltip({
   return (
     <div className="border border-neutral-700 bg-black p-2 text-xs text-neutral-200 shadow-lg">
       <p className="mb-1 font-semibold">
-        {data.name} <span className="text-neutral-500">({data.code})</span>
+        {data.name} <span className="text-neutral-300">({data.code})</span>
       </p>
       <p>현재가 {data.price.toLocaleString("ko-KR")}원</p>
       <p className={changeColorClass(data.changeRate)}>등락률 {formatChangeRate(data.changeRate)}</p>
@@ -101,10 +101,10 @@ export default function MarketMap({ stocks }: { stocks: Stock[] }) {
     return searched.map((s) => ({
       name: s.stock_name,
       code: s.stock_code,
-      value: Math.max(s.market_cap, 1),
+      value: Math.max(s.market_cap ?? 0, 1),
       changeRate: s.change_rate,
       price: s.price,
-      tradingValue: s.trading_value,
+      tradingValue: s.trading_value ?? 0,
       volume: s.volume,
       foreignNetBuy: s.foreign_net_buy,
       institutionNetBuy: s.institution_net_buy,
@@ -133,12 +133,12 @@ export default function MarketMap({ stocks }: { stocks: Stock[] }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="종목 검색"
-            className="border border-neutral-700 bg-black px-2 py-1 text-xs text-neutral-200 placeholder:text-neutral-600"
+            className="border border-neutral-700 bg-black px-2 py-1 text-xs text-neutral-200 placeholder:text-neutral-400"
           />
         </div>
       </div>
 
-      <p className="mb-2 text-xs text-neutral-600">
+      <p className="mb-2 text-xs text-neutral-400">
         타일 크기 = 시가총액 비중 · 타일 색상 = 등락률 (빨강 상승 / 파랑 하락) · 클릭 시 종목 상세로 이동
       </p>
 
@@ -161,7 +161,7 @@ export default function MarketMap({ stocks }: { stocks: Stock[] }) {
             </Treemap>
           </ResponsiveContainer>
         ) : (
-          <p className="p-4 text-sm text-neutral-600">검색 결과가 없습니다.</p>
+          <p className="p-4 text-sm text-neutral-400">검색 결과가 없습니다.</p>
         )}
       </div>
     </section>

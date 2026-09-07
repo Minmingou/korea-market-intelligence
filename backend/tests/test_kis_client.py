@@ -376,3 +376,172 @@ def test_factory_returns_kis_client_when_use_mock_data_false(monkeypatch):
     monkeypatch.setattr(settings, "kis_app_key", "test-key")
     monkeypatch.setattr(settings, "kis_app_secret", "test-secret")
     assert isinstance(get_market_data_client(), KISClient)
+
+
+# ---- 순위분석(Movers)/차트/단건 조회 ---------------------------------------
+
+
+def _fluctuation_row(code: str, name: str, rate: str, **overrides) -> dict:
+    row = {
+        "stck_shrn_iscd": code,
+        "hts_kor_isnm": name,
+        "stck_prpr": "10000",
+        "prdy_vrss_sign": "2" if not rate.startswith("-") else "5",
+        "prdy_vrss": "100",
+        "prdy_ctrt": rate,
+        "acml_vol": "50000",
+    }
+    row.update(overrides)
+    return row
+
+
+def _volume_rank_row(code: str, name: str, trading_value: str) -> dict:
+    return {
+        "mksc_shrn_iscd": code,
+        "hts_kor_isnm": name,
+        "stck_prpr": "50000",
+        "prdy_vrss_sign": "2",
+        "prdy_vrss": "500",
+        "prdy_ctrt": "1.00",
+        "acml_vol": "1000000",
+        "acml_tr_pbmn": trading_value,
+    }
+
+
+def _investor_rank_row(code: str, name: str, frgn: str, orgn: str) -> dict:
+    return {
+        "mksc_shrn_iscd": code,
+        "hts_kor_isnm": name,
+        "stck_prpr": "50000",
+        "prdy_vrss_sign": "2",
+        "prdy_vrss": "500",
+        "prdy_ctrt": "1.00",
+        "acml_vol": "1000000",
+        "frgn_ntby_tr_pbmn": frgn,
+        "orgn_ntby_tr_pbmn": orgn,
+    }
+
+
+@pytest.fixture
+def kis_client_with_rank_transport(monkeypatch, tmp_path):
+    from app.clients.stock_master import StockMasterEntry
+
+    monkeypatch.setattr(settings, "kis_app_key", "test-key")
+    monkeypatch.setattr(settings, "kis_app_secret", "test-secret")
+    monkeypatch.setattr("app.clients.kis_client._TOKEN_CACHE_PATH", tmp_path / "kis_token_cache.json")
+    monkeypatch.setattr("app.clients.kis_client.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        "app.clients.kis_client.get_stock_master",
+        lambda: [
+            StockMasterEntry("000001", "상한종목", "KOSPI"),
+            StockMasterEntry("000002", "하한종목", "KOSDAQ"),
+            StockMasterEntry("000003", "거래대금1위", "KOSPI"),
+            StockMasterEntry("000004", "외국인순매수1위", "KOSPI"),
+        ],
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/oauth2/tokenP":
+            return httpx.Response(200, json={"access_token": "fake-token", "expires_in": 86400})
+        if path == "/uapi/domestic-stock/v1/ranking/fluctuation":
+            sort_cls = request.url.params.get("fid_rank_sort_cls_code")
+            if sort_cls == "0":
+                output = [_fluctuation_row("000001", "상한종목", "30.00")]
+            else:
+                output = [_fluctuation_row("000002", "하한종목", "-30.00")]
+            return httpx.Response(200, json={"rt_cd": "0", "msg1": "OK", "output": output})
+        if path == "/uapi/domestic-stock/v1/quotations/volume-rank":
+            output = [_volume_rank_row("000003", "거래대금1위", "999999999")]
+            return httpx.Response(200, json={"rt_cd": "0", "msg1": "OK", "output": output})
+        if path == "/uapi/domestic-stock/v1/quotations/foreign-institution-total":
+            output = [_investor_rank_row("000004", "외국인순매수1위", "12345", "6789")]
+            return httpx.Response(200, json={"rt_cd": "0", "msg1": "OK", "output": output})
+        if path == "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice":
+            output2 = [
+                {
+                    "stck_bsop_date": "20260905",
+                    "stck_oprc": "100",
+                    "stck_hgpr": "110",
+                    "stck_lwpr": "95",
+                    "stck_clpr": "105",
+                    "acml_vol": "1000",
+                },
+                {
+                    "stck_bsop_date": "20260904",
+                    "stck_oprc": "98",
+                    "stck_hgpr": "102",
+                    "stck_lwpr": "97",
+                    "stck_clpr": "100",
+                    "acml_vol": "800",
+                },
+            ]
+            return httpx.Response(
+                200, json={"rt_cd": "0", "msg1": "OK", "output1": {}, "output2": output2}
+            )
+        if path == "/uapi/domestic-stock/v1/quotations/inquire-price":
+            return httpx.Response(200, json={"rt_cd": "0", "msg1": "OK", "output": _valid_quote_output()})
+        if path == "/uapi/domestic-stock/v1/quotations/inquire-investor":
+            return httpx.Response(
+                200, json={"rt_cd": "0", "msg1": "OK", "output": [_valid_investor_row()]}
+            )
+        raise AssertionError(f"unexpected path: {path}")
+
+    client = KISClient()
+    client._http = httpx.Client(base_url=settings.kis_base_url, transport=httpx.MockTransport(handler))
+    return client
+
+
+def test_fetch_movers_top_gainers_ranks_by_verified_change_rate(kis_client_with_rank_transport):
+    stocks = kis_client_with_rank_transport.fetch_movers("top_gainers", None, 10)
+    assert stocks is not None
+    assert stocks[0].stock_code == "000001"
+    assert stocks[0].change_rate == 30.0
+    assert stocks[0].market == "KOSPI"  # stock_master 역조회로 채워짐
+
+
+def test_fetch_movers_top_losers_ranks_ascending(kis_client_with_rank_transport):
+    stocks = kis_client_with_rank_transport.fetch_movers("top_losers", None, 10)
+    assert stocks is not None
+    assert stocks[0].stock_code == "000002"
+    assert stocks[0].change_rate == -30.0
+
+
+def test_fetch_movers_top_trading_value_uses_volume_rank_endpoint(kis_client_with_rank_transport):
+    stocks = kis_client_with_rank_transport.fetch_movers("top_trading_value", None, 10)
+    assert stocks is not None
+    assert stocks[0].stock_code == "000003"
+    assert stocks[0].trading_value == 999999999.0
+    # 순위 API 응답에는 없는 필드 -> 지어내지 않고 None
+    assert stocks[0].sector is None
+    assert stocks[0].market_cap is None
+
+
+def test_fetch_movers_foreign_net_buy_applies_unit_multiplier(kis_client_with_rank_transport):
+    stocks = kis_client_with_rank_transport.fetch_movers("foreign_net_buy", None, 10)
+    assert stocks is not None
+    assert stocks[0].stock_code == "000004"
+    assert stocks[0].foreign_net_buy == 12345 * 1_000_000
+    assert stocks[0].institution_net_buy == 6789 * 1_000_000
+
+
+def test_fetch_movers_returns_none_for_volume_surge(kis_client_with_rank_transport):
+    # 순위 API로 신뢰성 있게 채울 수 없는 카테고리는 None -> 호출자가 폴백해야 함을 뜻한다.
+    assert kis_client_with_rank_transport.fetch_movers("volume_surge", None, 10) is None
+
+
+def test_fetch_daily_chart_returns_bars_sorted_ascending_by_date(kis_client_with_rank_transport):
+    bars = kis_client_with_rank_transport.fetch_daily_chart("005930", "D", 2)
+    assert bars is not None
+    assert [b.date for b in bars] == ["20260904", "20260905"]
+    assert bars[1].close == 105.0
+    assert bars[1].volume == 1000
+
+
+def test_fetch_single_stock_fills_name_and_market_from_stock_master(kis_client_with_rank_transport):
+    stock = kis_client_with_rank_transport.fetch_single_stock("999999")
+    assert stock is not None
+    # stock_master에 없는 코드라 코드 자체를 이름으로, KOSPI를 기본값으로 채운다.
+    assert stock.stock_name == "999999"
+    assert stock.market == "KOSPI"
+    assert stock.sector is None

@@ -18,7 +18,7 @@ export default function RefreshButton() {
   }
 
   return (
-    <div className="flex items-center gap-2 text-xs text-neutral-500">
+    <div className="flex items-center gap-2 text-xs text-neutral-300">
       {lastRefreshed && <span>새로고침 {lastRefreshed}</span>}
       <button
         onClick={handleRefresh}

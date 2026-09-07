@@ -5,6 +5,7 @@ import CompanyFinancials from "@/components/CompanyFinancials";
 import DisclosureList from "@/components/DisclosureList";
 import NewsList from "@/components/NewsList";
 import RefreshButton from "@/components/RefreshButton";
+import StockChart from "@/components/StockChart";
 import { getCompanyFinancials, getDisclosures, getNews, getStock, getStockBrief } from "@/lib/api";
 import { changeColorClass, formatChangeRate, formatKRW, formatTime } from "@/lib/format";
 
@@ -34,7 +35,7 @@ export default async function StockDetailPage({ params }: PageProps) {
   if (!stock) {
     return (
       <main className="flex-1 space-y-4 p-4 font-mono lg:p-6">
-        <Link href="/" className="text-xs text-neutral-500 hover:text-neutral-300">
+        <Link href="/" className="text-xs text-neutral-300 hover:text-neutral-100">
           ← 대시보드로
         </Link>
         <p className="border border-red-900 p-4 text-sm text-red-400">
@@ -48,7 +49,7 @@ export default async function StockDetailPage({ params }: PageProps) {
     <main className="flex-1 space-y-6 p-4 font-mono lg:p-6">
       <AutoRefresh />
       <div className="flex items-center justify-between">
-        <Link href="/" className="text-xs text-neutral-500 hover:text-neutral-300">
+        <Link href="/" className="text-xs text-neutral-300 hover:text-neutral-100">
           ← 대시보드로
         </Link>
         <RefreshButton />
@@ -58,7 +59,7 @@ export default async function StockDetailPage({ params }: PageProps) {
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">{stock.stock_name}</h1>
-            <p className="mt-1 text-xs text-neutral-500">
+            <p className="mt-1 text-xs text-neutral-300">
               {stock.stock_code} · {stock.market} · {stock.sector}
             </p>
           </div>
@@ -72,16 +73,18 @@ export default async function StockDetailPage({ params }: PageProps) {
             </div>
           </div>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-neutral-900 pt-3 text-xs text-neutral-500 sm:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-neutral-900 pt-3 text-xs text-neutral-300 sm:grid-cols-4">
           <span>시가총액 {formatKRW(stock.market_cap)}</span>
           <span>거래대금 {formatKRW(stock.trading_value)}</span>
           <span>외국인 순매수 {formatKRW(stock.foreign_net_buy)}</span>
           <span>기관 순매수 {formatKRW(stock.institution_net_buy)}</span>
         </div>
-        <p className="mt-2 text-xs text-neutral-600">
+        <p className="mt-2 text-xs text-neutral-400">
           기준 시각: {formatTime(stock.updated_at)} · {stock.data_source === "mock" ? "MOCK DATA" : "실시간"}
         </p>
       </header>
+
+      <StockChart stockCode={stock.stock_code} />
 
       {brief ? (
         <AiBrief title="AI STOCK BRIEF" data={brief} />

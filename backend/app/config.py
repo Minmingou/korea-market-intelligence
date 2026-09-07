@@ -26,7 +26,10 @@ class Settings(BaseSettings):
     use_mock_dart: bool = True
     use_mock_news: bool = True
     use_mock_llm: bool = True
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # 개발 서버 기본 포트(3000)와, 이 프로젝트에서 실제로 띄워 쓰는 포트(3100) 둘 다
+    # 허용한다 - 검색/차트 같은 클라이언트 컴포넌트가 브라우저에서 직접 API를
+    # 호출하면서 CORS가 처음으로 실제 걸리는 문제가 있었다.
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3100"]
 
 
 settings = Settings()

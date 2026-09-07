@@ -1,6 +1,6 @@
 // 국내 관례: 상승 = 빨강, 하락 = 파랑. 데이터가 없으면(N/A) 중립색으로 표시한다.
 export function changeColorClass(value: number | null): string {
-  if (value === null) return "text-neutral-600";
+  if (value === null) return "text-neutral-400";
   if (value > 0) return "text-red-400";
   if (value < 0) return "text-blue-400";
   return "text-neutral-400";

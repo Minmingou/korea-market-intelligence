@@ -4,7 +4,7 @@ import { formatKRW } from "@/lib/format";
 function RatioCard({ label, value, unit }: { label: string; value: number | null; unit: string }) {
   return (
     <div className="border border-neutral-800 p-3">
-      <div className="text-xs text-neutral-500">{label}</div>
+      <div className="text-xs text-neutral-300">{label}</div>
       <div className="mt-1 text-lg font-semibold tabular-nums text-neutral-100">
         {value === null ? "N/A" : `${value.toLocaleString("ko-KR")}${unit}`}
       </div>
@@ -28,7 +28,7 @@ export default function CompanyFinancials({ data }: { data: CompanyFinancialsDat
         <h2 className="text-sm font-semibold tracking-wide text-neutral-400">
           COMPANY FINANCIALS
         </h2>
-        <span className="text-xs text-neutral-600">{data.report_label}</span>
+        <span className="text-xs text-neutral-400">{data.report_label}</span>
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
@@ -48,7 +48,7 @@ export default function CompanyFinancials({ data }: { data: CompanyFinancialsDat
         <AccountRow label="자본총계" value={data.total_equity} />
       </ul>
 
-      <p className="mt-2 text-xs text-neutral-600">
+      <p className="mt-2 text-xs text-neutral-400">
         {data.data_source === "mock" ? "MOCK DATA" : "DART 전자공시"}
       </p>
     </section>

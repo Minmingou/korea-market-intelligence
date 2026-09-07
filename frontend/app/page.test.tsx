@@ -31,6 +31,9 @@ vi.mock("@/components/RefreshButton", () => ({
 vi.mock("@/components/AutoRefresh", () => ({
   default: () => null,
 }));
+vi.mock("@/components/SearchBar", () => ({
+  default: () => null,
+}));
 
 vi.mock("@/lib/api");
 

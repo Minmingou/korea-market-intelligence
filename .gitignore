@@ -18,6 +18,9 @@ data/kis_token_cache.json
 # DART corp_code 매핑 캐시 (전체 상장/비상장 회사 목록 다운로드본, 커밋할 필요 없음)
 data/dart_corp_code_map.json
 
+# KOSPI/KOSDAQ 전종목 코드 마스터 캐시 (검색/Movers 시장 태깅용, 하루 단위로 재다운로드됨)
+data/stock_master.json
+
 # Node / Next.js
 frontend/node_modules/
 frontend/.next/

@@ -72,7 +72,7 @@ export default function SectorTable({ initialSectors }: { initialSectors: Sector
           >
             <span className="truncate text-neutral-200">
               {sector.sector_name}
-              <span className="ml-1 text-xs text-neutral-600">
+              <span className="ml-1 text-xs text-neutral-400">
                 {sector.market} · {sector.stock_count}종목
               </span>
             </span>
@@ -80,13 +80,13 @@ export default function SectorTable({ initialSectors }: { initialSectors: Sector
               <span className={changeColorClass(sector.avg_change_rate)}>
                 {formatChangeRate(sector.avg_change_rate)}
               </span>
-              <span className="hidden text-neutral-500 sm:inline">
+              <span className="hidden text-neutral-300 sm:inline">
                 {formatKRW(sector.trading_value)}
               </span>
             </span>
           </li>
         ))}
-        {sorted.length === 0 && <li className="text-neutral-600">데이터 없음</li>}
+        {sorted.length === 0 && <li className="text-neutral-400">데이터 없음</li>}
       </ul>
     </section>
   );

@@ -3,9 +3,19 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.analysis.flow_analysis import calculate_volume_ratio, top_n_by
+from app.clients import get_market_data_client
+from app.clients.stock_master import get_stock_master, search_stock_master
+from app.config import settings
 from app.models.stock import Stock
 from app.repositories.stock_repository import StockRepository
-from app.schemas.stock import MoverCategoryOut, StockOut
+from app.schemas.stock import (
+    DailyBarOut,
+    MoverCategoryOut,
+    StockChartOut,
+    StockOut,
+    StockSearchOut,
+    StockSearchResultOut,
+)
 from app.services.market_service import refresh_if_needed
 
 SORT_KEYS = {
@@ -46,6 +56,29 @@ def _to_stock_out(stock: Stock) -> StockOut:
     )
 
 
+def _raw_to_stock_out(raw) -> StockOut:
+    """순위분석 API(Movers) 등으로 얻은, DB에 없는 RawStock을 StockOut으로 변환한다."""
+    return StockOut(
+        stock_code=raw.stock_code,
+        stock_name=raw.stock_name,
+        market=raw.market,
+        sector=raw.sector,
+        price=raw.price,
+        change=raw.change,
+        change_rate=raw.change_rate,
+        volume=raw.volume,
+        avg_volume_20d=raw.avg_volume_20d,
+        volume_ratio=calculate_volume_ratio(raw.volume, raw.avg_volume_20d),
+        trading_value=raw.trading_value,
+        market_cap=raw.market_cap,
+        foreign_net_buy=raw.foreign_net_buy,
+        institution_net_buy=raw.institution_net_buy,
+        individual_net_buy=raw.individual_net_buy,
+        data_source=raw.data_source,
+        updated_at=raw.fetched_at,
+    )
+
+
 def get_stocks(db: Session, market: str | None = None, sort_by: str = "market_cap") -> list[StockOut]:
     refresh_if_needed(db)
     repo = StockRepository(db)
@@ -59,7 +92,18 @@ def get_stock(db: Session, stock_code: str) -> StockOut | None:
     refresh_if_needed(db)
     repo = StockRepository(db)
     stock = repo.get_by_code(stock_code)
-    return _to_stock_out(stock) if stock else None
+    if stock is not None:
+        return _to_stock_out(stock)
+
+    # 큐레이션된 유니버스(mock_universe.STOCK_UNIVERSE)에 없는 종목코드다. 검색으로
+    # 전종목 중 하나를 골랐을 수 있으므로, DB에 없다고 바로 404 처리하지 않고
+    # 클라이언트에 단건 조회를 한 번 더 시도한다 (지원하지 않으면 None을 반환한다).
+    client = get_market_data_client()
+    raw = client.fetch_single_stock(stock_code)
+    if raw is None:
+        return None
+    repo.upsert_many([raw])
+    return _to_stock_out(repo.get_by_code(stock_code))
 
 
 def get_market_movers(
@@ -69,6 +113,24 @@ def get_market_movers(
     if category not in MOVER_CATEGORIES:
         raise ValueError(f"Unknown mover category: {category}")
 
+    # 전체 시장 기준 순위 API를 지원하는 클라이언트(KIS)는 이를 우선 쓴다 - 종목
+    # 유니버스에 갇히지 않고 상/하한가 등 실제 시장 전체의 움직임을 반영한다.
+    client = get_market_data_client()
+    ranked = client.fetch_movers(category, market, limit)
+    if ranked is not None:
+        now = datetime.now(timezone.utc)
+        data_source = ranked[0].data_source if ranked else "kis"
+        updated_at = max((s.fetched_at for s in ranked), default=now)
+        return MoverCategoryOut(
+            category=category,
+            items=[_raw_to_stock_out(s) for s in ranked],
+            updated_at=updated_at,
+            data_source=data_source,
+        )
+
+    # 폴백: 순위 API를 지원하지 않는 클라이언트(Mock, 또는 volume_surge처럼 순위
+    # API로 신뢰성 있게 채울 수 없는 카테고리)는 fetch_stocks()로 채운 종목 목록에서
+    # 직접 순위를 계산한다.
     repo = StockRepository(db)
     stocks = repo.get_all(market)
     key = MOVER_CATEGORIES[category]
@@ -84,4 +146,32 @@ def get_market_movers(
         items=[_to_stock_out(s) for s in top],
         updated_at=updated_at,
         data_source=data_source,
+    )
+
+
+def search_stocks(query: str, limit: int = 10) -> StockSearchOut:
+    matches = search_stock_master(query, get_stock_master(), limit=limit)
+    return StockSearchOut(
+        query=query,
+        items=[
+            StockSearchResultOut(stock_code=e.stock_code, stock_name=e.stock_name, market=e.market)
+            for e in matches
+        ],
+    )
+
+
+def get_daily_chart(stock_code: str, period: str = "D", count: int = 100) -> StockChartOut | None:
+    client = get_market_data_client()
+    bars = client.fetch_daily_chart(stock_code, period, count)
+    if bars is None or not bars:
+        return None
+    return StockChartOut(
+        stock_code=stock_code,
+        period=period,
+        items=[
+            DailyBarOut(date=b.date, open=b.open, high=b.high, low=b.low, close=b.close, volume=b.volume)
+            for b in bars
+        ],
+        data_source="mock" if settings.use_mock_data else "kis",
+        updated_at=datetime.now(timezone.utc),
     )

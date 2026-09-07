@@ -148,3 +148,62 @@ def test_stock_brief_endpoint(client):
 def test_stock_brief_unknown_stock_returns_404(client):
     res = client.get("/api/stocks/999999/brief")
     assert res.status_code == 404
+
+
+def _patch_stock_master(monkeypatch):
+    from app.clients.stock_master import StockMasterEntry
+
+    monkeypatch.setattr(
+        "app.services.stock_service.get_stock_master",
+        lambda: [
+            StockMasterEntry("005930", "삼성전자", "KOSPI"),
+            StockMasterEntry("005935", "삼성전자우", "KOSPI"),
+            StockMasterEntry("000660", "SK하이닉스", "KOSPI"),
+        ],
+    )
+
+
+def test_search_stocks_matches_by_name(client, monkeypatch):
+    _patch_stock_master(monkeypatch)
+    res = client.get("/api/stocks/search", params={"q": "삼성전자"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["query"] == "삼성전자"
+    codes = [item["stock_code"] for item in body["items"]]
+    assert "005930" in codes
+    assert "005935" in codes
+    assert "000660" not in codes
+
+
+def test_search_stocks_matches_by_code(client, monkeypatch):
+    _patch_stock_master(monkeypatch)
+    res = client.get("/api/stocks/search", params={"q": "000660"})
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert items[0]["stock_code"] == "000660"
+
+
+def test_search_stocks_requires_query_param(client):
+    res = client.get("/api/stocks/search")
+    assert res.status_code == 422
+
+
+def test_stock_chart_endpoint_returns_ohlcv_bars(client):
+    res = client.get("/api/stocks/005930/chart", params={"period": "D", "count": 10})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["stock_code"] == "005930"
+    assert body["period"] == "D"
+    assert len(body["items"]) == 10
+    bar = body["items"][0]
+    assert set(bar) == {"date", "open", "high", "low", "close", "volume"}
+
+
+def test_stock_chart_endpoint_unknown_stock_returns_404(client):
+    res = client.get("/api/stocks/999999/chart")
+    assert res.status_code == 404
+
+
+def test_stock_chart_endpoint_rejects_invalid_period(client):
+    res = client.get("/api/stocks/005930/chart", params={"period": "X"})
+    assert res.status_code == 422

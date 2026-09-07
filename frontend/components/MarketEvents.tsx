@@ -12,7 +12,7 @@ export default function MarketEvents({ data }: { data: MarketEventList }) {
     <section className="border border-neutral-800 p-3">
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold tracking-wide text-neutral-400">KEY EVENTS</h2>
-        <span className="text-xs text-neutral-600">
+        <span className="text-xs text-neutral-400">
           {data.data_source === "mock" ? "MOCK DATA" : "DART 전자공시"}
         </span>
       </div>
@@ -32,20 +32,20 @@ export default function MarketEvents({ data }: { data: MarketEventList }) {
                   href={item.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="truncate text-neutral-500 underline decoration-neutral-700 underline-offset-2 hover:text-neutral-300"
+                  className="truncate text-neutral-300 underline decoration-neutral-700 underline-offset-2 hover:text-neutral-100"
                 >
                   {item.report_nm}
                 </a>
               ) : (
-                <span className="truncate text-neutral-500">{item.report_nm}</span>
+                <span className="truncate text-neutral-300">{item.report_nm}</span>
               )}
             </span>
-            <span className="shrink-0 text-xs text-neutral-500 tabular-nums">
+            <span className="shrink-0 text-xs text-neutral-300 tabular-nums">
               {formatDisclosureDate(item.rcept_dt)}
             </span>
           </li>
         ))}
-        {data.items.length === 0 && <li className="text-neutral-600">최근 공시 없음</li>}
+        {data.items.length === 0 && <li className="text-neutral-400">최근 공시 없음</li>}
       </ul>
     </section>
   );

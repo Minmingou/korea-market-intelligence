@@ -12,7 +12,7 @@ function FlowList<T>({
 }) {
   return (
     <div>
-      <h4 className="text-xs text-neutral-500">{title}</h4>
+      <h4 className="text-xs text-neutral-300">{title}</h4>
       <ul className="mt-1 space-y-0.5 text-sm">
         {items.slice(0, 5).map((item, idx) => {
           const { name, value } = label(item);
@@ -25,7 +25,7 @@ function FlowList<T>({
             </li>
           );
         })}
-        {items.length === 0 && <li className="text-neutral-600">데이터 없음</li>}
+        {items.length === 0 && <li className="text-neutral-400">데이터 없음</li>}
       </ul>
     </div>
   );
@@ -38,19 +38,19 @@ export default function MoneyFlow({ data }: { data: MoneyFlowData }) {
 
       <div className="mb-3 grid grid-cols-3 gap-2 text-center">
         <div>
-          <div className="text-xs text-neutral-500">외국인</div>
+          <div className="text-xs text-neutral-300">외국인</div>
           <div className={`tabular-nums ${changeColorClass(data.totals.foreign)}`}>
             {formatKRW(data.totals.foreign)}
           </div>
         </div>
         <div>
-          <div className="text-xs text-neutral-500">기관</div>
+          <div className="text-xs text-neutral-300">기관</div>
           <div className={`tabular-nums ${changeColorClass(data.totals.institution)}`}>
             {formatKRW(data.totals.institution)}
           </div>
         </div>
         <div>
-          <div className="text-xs text-neutral-500">개인</div>
+          <div className="text-xs text-neutral-300">개인</div>
           <div className={`tabular-nums ${changeColorClass(data.totals.individual)}`}>
             {formatKRW(data.totals.individual)}
           </div>

@@ -11,15 +11,17 @@ export interface Stock {
   stock_code: string;
   stock_name: string;
   market: Market;
-  sector: string;
+  // Movers가 시장 전체 순위 API로 채워질 때는 업종/거래대금/시가총액을 제공하지
+  // 않아 null(N/A)일 수 있다 - 개별 종목 시세 조회로 채운 경우에만 값이 있다.
+  sector: string | null;
   price: number;
   change: number;
   change_rate: number;
   volume: number;
   avg_volume_20d: number | null;
   volume_ratio: number | null;
-  trading_value: number;
-  market_cap: number;
+  trading_value: number | null;
+  market_cap: number | null;
   foreign_net_buy: number | null;
   institution_net_buy: number | null;
   individual_net_buy: number | null;
@@ -185,4 +187,34 @@ export interface StockBrief {
   summary: string;
   data_source: string;
   generated_at: string;
+}
+
+export interface StockSearchResult {
+  stock_code: string;
+  stock_name: string;
+  market: Market;
+}
+
+export interface StockSearchResponse {
+  query: string;
+  items: StockSearchResult[];
+}
+
+export interface DailyBar {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export type ChartPeriod = "D" | "W" | "M" | "Y";
+
+export interface StockChart {
+  stock_code: string;
+  period: ChartPeriod;
+  items: DailyBar[];
+  data_source: string;
+  updated_at: string;
 }

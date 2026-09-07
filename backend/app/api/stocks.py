@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas.stock import MoverCategoryOut, StockOut
+from app.schemas.stock import MoverCategoryOut, StockChartOut, StockOut, StockSearchOut
 from app.services import stock_service
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
@@ -49,6 +49,19 @@ def get_movers(
 
 
 @router.get(
+    "/search",
+    response_model=StockSearchOut,
+    summary="종목 검색",
+    description="종목코드/종목명으로 KOSPI+KOSDAQ 전종목(약 4,400개)을 검색한다.",
+)
+def search_stocks(
+    q: str = Query(..., min_length=1, description="종목코드 또는 종목명(부분 일치)"),
+    limit: int = Query(10, ge=1, le=50),
+) -> StockSearchOut:
+    return stock_service.search_stocks(q, limit=limit)
+
+
+@router.get(
     "/{stock_code}",
     response_model=StockOut,
     summary="종목 상세 시세",
@@ -59,3 +72,20 @@ def get_stock(stock_code: str, db: Session = Depends(get_db)) -> StockOut:
     if stock is None:
         raise HTTPException(status_code=404, detail="Stock not found")
     return stock
+
+
+@router.get(
+    "/{stock_code}/chart",
+    response_model=StockChartOut,
+    summary="종목 기간별 시세(차트)",
+    description="종목코드로 일/주/월/년봉 OHLCV를 조회한다 (캔들차트/이동평균선 계산용).",
+)
+def get_stock_chart(
+    stock_code: str,
+    period: Literal["D", "W", "M", "Y"] = "D",
+    count: int = Query(100, ge=1, le=100),
+) -> StockChartOut:
+    chart = stock_service.get_daily_chart(stock_code, period=period, count=count)
+    if chart is None:
+        raise HTTPException(status_code=404, detail="Chart data not found")
+    return chart

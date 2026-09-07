@@ -1,4 +1,5 @@
 import type {
+  ChartPeriod,
   CompanyFinancials,
   DisclosureList,
   HealthStatus,
@@ -13,6 +14,8 @@ import type {
   Sector,
   Stock,
   StockBrief,
+  StockChart,
+  StockSearchResponse,
 } from "@/types/market";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -102,4 +105,21 @@ export function getMarketEvents(count?: number): Promise<MarketEventList> {
 
 export function getStockBrief(code: string): Promise<StockBrief> {
   return apiGet(`/api/stocks/${code}/brief`);
+}
+
+export function searchStocks(query: string, limit?: number): Promise<StockSearchResponse> {
+  const search = new URLSearchParams({ q: query });
+  if (limit) search.set("limit", String(limit));
+  return apiGet(`/api/stocks/search?${search.toString()}`);
+}
+
+export function getStockChart(
+  code: string,
+  params?: { period?: ChartPeriod; count?: number },
+): Promise<StockChart> {
+  const search = new URLSearchParams();
+  if (params?.period) search.set("period", params.period);
+  if (params?.count) search.set("count", String(params.count));
+  const qs = search.toString();
+  return apiGet(`/api/stocks/${code}/chart${qs ? `?${qs}` : ""}`);
 }

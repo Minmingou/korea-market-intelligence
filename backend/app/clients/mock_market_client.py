@@ -1,5 +1,5 @@
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.analysis.flow_analysis import sum_by
 from app.analysis.market_analysis import (
@@ -8,7 +8,7 @@ from app.analysis.market_analysis import (
     calculate_market_cap,
     calculate_trading_value,
 )
-from app.clients.market_data_client import MarketDataClient, RawMarketIndex, RawStock
+from app.clients.market_data_client import MarketDataClient, RawDailyBar, RawMarketIndex, RawStock
 from app.clients.mock_universe import STOCK_UNIVERSE, TIER_AVG_VOLUME, TIER_MARKET_CAP
 
 BASE_INDEX_VALUE = {"KOSPI": 2650.0, "KOSDAQ": 850.0}
@@ -118,3 +118,55 @@ class MockMarketDataClient(MarketDataClient):
             )
 
         return indices
+
+    _PERIOD_STEP_DAYS = {"D": 1, "W": 7, "M": 30, "Y": 365}
+
+    def fetch_daily_chart(self, stock_code: str, period: str, count: int) -> list[RawDailyBar] | None:
+        stock = next((s for s in self.fetch_stocks() if s.stock_code == stock_code), None)
+        if stock is None:
+            return None
+
+        count = max(1, min(count, 100))
+        period_code = period if period in self._PERIOD_STEP_DAYS else "D"
+        step_days = self._PERIOD_STEP_DAYS[period_code]
+
+        # 종목코드+기간으로 시드를 고정해 같은 요청에는 항상 같은 캔들이 나오도록 한다
+        # (Mock 데이터는 재현 가능해야 새로고침할 때마다 차트가 요동치지 않는다).
+        rng = random.Random(f"{stock_code}-{period_code}-chart")
+        today = datetime.now(timezone.utc)
+        price = stock.price
+        bars: list[RawDailyBar] = []
+        for i in range(count):
+            date = today - timedelta(days=step_days * (count - 1 - i))
+            pct = rng.gauss(0, 1.8)
+            open_price = price
+            close_price = round(open_price * (1 + pct / 100) / 10) * 10
+            high = max(open_price, close_price) * (1 + abs(rng.gauss(0, 0.5)) / 100)
+            low = min(open_price, close_price) * (1 - abs(rng.gauss(0, 0.5)) / 100)
+            volume = int((stock.avg_volume_20d or 100_000) * rng.uniform(0.6, 1.4))
+            bars.append(
+                RawDailyBar(
+                    date=date.strftime("%Y%m%d"),
+                    open=round(open_price),
+                    high=round(high),
+                    low=round(low),
+                    close=round(close_price),
+                    volume=volume,
+                )
+            )
+            price = close_price
+
+        # 마지막 봉은 대시보드에 보이는 현재가와 일치시켜 화면 간 수치가 어긋나지 않게 한다.
+        last = bars[-1]
+        bars[-1] = RawDailyBar(
+            date=last.date,
+            open=last.open,
+            high=max(last.high, stock.price),
+            low=min(last.low, stock.price),
+            close=stock.price,
+            volume=last.volume,
+        )
+        return bars
+
+    def fetch_single_stock(self, stock_code: str) -> RawStock | None:
+        return next((s for s in self.fetch_stocks() if s.stock_code == stock_code), None)

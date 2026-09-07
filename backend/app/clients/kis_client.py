@@ -21,8 +21,9 @@ from pathlib import Path
 import httpx
 
 from app.analysis.flow_analysis import sum_by, sum_optional_by
-from app.clients.market_data_client import MarketDataClient, RawMarketIndex, RawStock
+from app.clients.market_data_client import MarketDataClient, RawDailyBar, RawMarketIndex, RawStock
 from app.clients.mock_universe import STOCK_UNIVERSE
+from app.clients.stock_master import build_code_market_index, get_stock_master
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -31,11 +32,30 @@ _TOKEN_CACHE_PATH = Path(__file__).resolve().parents[3] / "data" / "kis_token_ca
 _QUOTE_TR_ID = "FHKST01010100"
 _INDEX_TR_ID = "FHPUP02100000"  # 국내업종 현재지수 [v1_국내주식-063]
 _INVESTOR_TR_ID = "FHKST01010900"  # 주식현재가 투자자 [v1_국내주식-012]
+_FLUCTUATION_TR_ID = "FHPST01700000"  # 국내주식 등락률 순위 [v1_국내주식-088]
+_VOLUME_RANK_TR_ID = "FHPST01710000"  # 국내주식 거래량순위 [v1_국내주식-047]
+_FOREIGN_INST_TR_ID = "FHPTJ04400000"  # 국내기관_외국인 매매종목가집계 [국내주식-037]
+_CHART_TR_ID = "FHKST03010100"  # 국내주식기간별시세(일/주/월/년) [v1_국내주식-016]
 _REQUEST_INTERVAL_SEC = 0.15  # 종목별 순차 호출 사이의 최소 간격 (초당 호출 제한 회피)
 _MAX_RETRIES = 3
 _RETRY_BACKOFF_SEC = 0.5
 
 _INDEX_CODE = {"KOSPI": "0001", "KOSDAQ": "1001"}
+
+
+def _rank_market_iscd(market: str | None) -> str:
+    # 순위분석 API(등락률/거래량순위/투자자매매동향)의 FID_INPUT_ISCD도 지수 조회와
+    # 같은 코드 체계를 쓴다 (라이브 호출로 확인: iscd="0001"을 주면 결과가 전부
+    # KOSPI 종목이었다). "0000"은 전체(KOSPI+KOSDAQ)를 뜻한다.
+    return _INDEX_CODE.get(market, "0000") if market else "0000"
+
+
+# FID_TRGT_EXLS_CLS_CODE(대상 제외 구분, 10자리): [투자위험/경고/주의, 관리종목,
+# 정리매매, 불성실공시, 우선주, 거래정지, ETF, ETN, 신용주문불가, SPAC] 순서.
+# ETF/ETN만 제외한다 - "Movers"는 개별 종목(주식) 순위를 보여주려는 목적이라,
+# 레버리지/인버스 ETN 등 파생 상품이 상/하위권을 뒤덮는 걸 막는다 (라이브 호출로
+# 확인: 이 코드로 실제 ETF/ETN이 걸러지고 개별 종목만 남았다).
+_EXCLUDE_ETF_ETN = "0000001100"
 
 # inquire-investor 응답의 *_ntby_tr_pbmn(순매수 거래대금) 필드는 공식 문서에 단위가
 # 명시되어 있지 않아, 실 서버에 라이브 호출해 값을 검증했다: 같은 날 같은 종목의
@@ -239,6 +259,305 @@ class KISClient(MarketDataClient):
 
         logger.warning("KIS 지수 조회 재시도 실패: %s (%s)", market, last_error)
         return None
+
+    # ---- 순위분석/차트 조회 (재시도 로직 공유) --------------------------------
+
+    def _get_ranked(
+        self, url: str, tr_id: str, params: dict[str, str], output_key: str = "output"
+    ) -> list[dict]:
+        last_error: httpx.HTTPStatusError | None = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = self._http.get(url, headers=self._headers(tr_id), params=params)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if exc.response.status_code < 500 or attempt == _MAX_RETRIES - 1:
+                    break
+                time.sleep(_RETRY_BACKOFF_SEC * (attempt + 1))
+                continue
+            except httpx.HTTPError:
+                logger.exception("KIS 순위/차트 조회 요청 실패: %s", url)
+                return []
+            else:
+                body = response.json()
+                if body.get("rt_cd") != "0":
+                    logger.warning("KIS 순위/차트 조회 실패 (%s): %s", url, body.get("msg1"))
+                    return []
+                return body.get(output_key) or []
+
+        logger.warning("KIS 순위/차트 조회 재시도 실패: %s (%s)", url, last_error)
+        return []
+
+    @staticmethod
+    def _sign_to_change(row: dict, magnitude_field: str, sign_field: str = "prdy_vrss_sign") -> float:
+        sign = row.get(sign_field, "3")
+        magnitude = abs(float(row[magnitude_field]))
+        return magnitude if sign in ("1", "2") else -magnitude if sign in ("4", "5") else 0.0
+
+    def _raw_stock_from_rank_row(
+        self,
+        row: dict,
+        code_field: str,
+        market_index: dict[str, str],
+        now: datetime,
+        *,
+        trading_value_field: str | None = None,
+        investor_fields: tuple[str, str] | None = None,
+    ) -> RawStock | None:
+        try:
+            code = row[code_field]
+            price = float(row["stck_prpr"])
+            change = self._sign_to_change(row, "prdy_vrss")
+            change_rate = float(row["prdy_ctrt"])
+            volume = int(float(row["acml_vol"]))
+            trading_value = float(row[trading_value_field]) if trading_value_field else None
+            foreign_net_buy = institution_net_buy = None
+            if investor_fields is not None:
+                foreign_field, institution_field = investor_fields
+                foreign_net_buy = float(row[foreign_field]) * _INVESTOR_UNIT_MULTIPLIER
+                institution_net_buy = float(row[institution_field]) * _INVESTOR_UNIT_MULTIPLIER
+        except (KeyError, ValueError, TypeError):
+            logger.exception("KIS 순위 응답 파싱 실패: %s", row.get(code_field))
+            return None
+
+        return RawStock(
+            stock_code=code,
+            stock_name=row.get("hts_kor_isnm", code),
+            market=market_index.get(code, "KOSPI"),
+            sector=None,
+            price=price,
+            change=round(change, 2),
+            change_rate=change_rate,
+            volume=volume,
+            trading_value=trading_value,
+            market_cap=None,
+            data_source="kis",
+            fetched_at=now,
+            foreign_net_buy=foreign_net_buy,
+            institution_net_buy=institution_net_buy,
+        )
+
+    # fid_input_cnt_1(조회할 종목 수)은 문서상 단순 개수 제한처럼 보이지만, 라이브
+    # 호출로 확인한 결과 실제로는 서버가 반환하는 30건짜리 결과 "묶음" 자체를
+    # 바꾼다 - 예를 들어 "0"을 주면 오늘의 최대 하락 종목(-29.98%)이 빠지고,
+    # "5"/"10"/"30"을 주면 포함된다. 값 하나로는 상/하한가를 안정적으로 잡을 수
+    # 없어, 여러 값으로 나눠 호출한 뒤 합쳐서 진짜 상/하위권을 스스로 재계산한다.
+    _FLUCTUATION_CNT_VARIANTS = ("5", "10", "30")
+
+    def _fluctuation(self, market_iscd: str, sort_cls: str) -> list[dict]:
+        merged: dict[str, dict] = {}
+        for cnt in self._FLUCTUATION_CNT_VARIANTS:
+            params = {
+                "fid_cond_mrkt_div_code": "J",
+                "fid_cond_scr_div_code": "20170",
+                "fid_input_iscd": market_iscd,
+                "fid_rank_sort_cls_code": sort_cls,
+                "fid_input_cnt_1": cnt,
+                "fid_prc_cls_code": "0",
+                "fid_input_price_1": "",
+                "fid_input_price_2": "",
+                "fid_vol_cnt": "",
+                "fid_trgt_cls_code": "0",
+                "fid_trgt_exls_cls_code": _EXCLUDE_ETF_ETN,
+                "fid_div_cls_code": "0",
+                "fid_rsfl_rate1": "",
+                "fid_rsfl_rate2": "",
+            }
+            rows = self._get_ranked(
+                "/uapi/domestic-stock/v1/ranking/fluctuation", _FLUCTUATION_TR_ID, params
+            )
+            for row in rows:
+                code = row.get("stck_shrn_iscd")
+                if code:
+                    merged[code] = row
+            time.sleep(_REQUEST_INTERVAL_SEC)
+        return list(merged.values())
+
+    _MOVER_CATEGORIES_VIA_RANKING = {
+        "top_gainers",
+        "top_losers",
+        "top_trading_value",
+        "foreign_net_buy",
+        "institution_net_buy",
+    }
+
+    def fetch_movers(self, category: str, market: str | None, limit: int) -> list[RawStock] | None:
+        """전체 시장(순위분석 API) 기준 Movers를 조회한다.
+
+        `fetch_stocks()`가 채우는 종목은 `mock_universe.STOCK_UNIVERSE`(약 70종목)로
+        제한되어 있어, 그 결과만으로 순위를 매기면 상/하한가 등 실제 시장의 극단적인
+        움직임을 놓친다. KIS 순위분석 API는 종목 유니버스와 무관하게 전체 시장을
+        대상으로 하므로, 이 엔드포인트가 있는 카테고리는 여기서 직접 채운다.
+
+        `volume_surge`(거래량 급증)는 순위 API의 "거래증가율" 응답이 ETN/ETF
+        이상치(9999.99배 등)에 지배되어 신뢰할 수 없어 지원하지 않는다 - 호출자가
+        기존 방식(20일 평균거래량 대비 배율)으로 폴백해야 한다.
+        """
+        if category not in self._MOVER_CATEGORIES_VIA_RANKING:
+            return None
+
+        now = datetime.now(timezone.utc)
+        market_index = build_code_market_index(get_stock_master())
+        market_iscd = _rank_market_iscd(market)
+
+        if category in ("top_gainers", "top_losers"):
+            rows_up = self._fluctuation(market_iscd, "0")
+            time.sleep(_REQUEST_INTERVAL_SEC)
+            rows_down = self._fluctuation(market_iscd, "1")
+            # 두 호출 결과를 코드 기준으로 합쳐 중복을 제거한 뒤, 서버가 매긴 순서를
+            # 신뢰하지 않고 검증된 필드(prdy_ctrt)로 직접 재정렬한다 - 라이브 호출로
+            # 확인한 결과 이 API의 정렬 순서 자체가 등락률과 일치하지 않았다.
+            merged: dict[str, dict] = {
+                r["stck_shrn_iscd"]: r for r in rows_up + rows_down if "stck_shrn_iscd" in r
+            }
+            stocks = [
+                s
+                for s in (
+                    self._raw_stock_from_rank_row(r, "stck_shrn_iscd", market_index, now)
+                    for r in merged.values()
+                )
+                if s is not None
+            ]
+            stocks.sort(key=lambda s: s.change_rate, reverse=(category == "top_gainers"))
+            return stocks[:limit]
+
+        if category == "top_trading_value":
+            rows = self._get_ranked(
+                "/uapi/domestic-stock/v1/quotations/volume-rank",
+                _VOLUME_RANK_TR_ID,
+                {
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_COND_SCR_DIV_CODE": "20171",
+                    "FID_INPUT_ISCD": market_iscd,
+                    "FID_DIV_CLS_CODE": "0",
+                    "FID_BLNG_CLS_CODE": "3",  # 거래금액순
+                    "FID_TRGT_CLS_CODE": "111111111",
+                    "FID_TRGT_EXLS_CLS_CODE": _EXCLUDE_ETF_ETN,
+                    "FID_INPUT_PRICE_1": "",
+                    "FID_INPUT_PRICE_2": "",
+                    "FID_VOL_CNT": "",
+                    "FID_INPUT_DATE_1": "",
+                },
+            )
+            stocks = [
+                s
+                for s in (
+                    self._raw_stock_from_rank_row(
+                        r, "mksc_shrn_iscd", market_index, now, trading_value_field="acml_tr_pbmn"
+                    )
+                    for r in rows
+                )
+                if s is not None
+            ]
+            stocks.sort(key=lambda s: s.trading_value or 0, reverse=True)
+            return stocks[:limit]
+
+        # foreign_net_buy / institution_net_buy
+        etc_cls = "1" if category == "foreign_net_buy" else "2"
+        rows = self._get_ranked(
+            "/uapi/domestic-stock/v1/quotations/foreign-institution-total",
+            _FOREIGN_INST_TR_ID,
+            {
+                "FID_COND_MRKT_DIV_CODE": "V",
+                "FID_COND_SCR_DIV_CODE": "16449",
+                "FID_INPUT_ISCD": market_iscd,
+                "FID_DIV_CLS_CODE": "1",  # 금액정렬
+                "FID_RANK_SORT_CLS_CODE": "0",  # 순매수상위
+                "FID_ETC_CLS_CODE": etc_cls,
+            },
+        )
+        stocks = [
+            s
+            for s in (
+                self._raw_stock_from_rank_row(
+                    r,
+                    "mksc_shrn_iscd",
+                    market_index,
+                    now,
+                    investor_fields=("frgn_ntby_tr_pbmn", "orgn_ntby_tr_pbmn"),
+                )
+                for r in rows
+            )
+            if s is not None
+        ]
+        key = (
+            (lambda s: s.foreign_net_buy or 0)
+            if category == "foreign_net_buy"
+            else (lambda s: s.institution_net_buy or 0)
+        )
+        stocks.sort(key=key, reverse=True)
+        return stocks[:limit]
+
+    # ---- 종목별 기간별 시세(차트) --------------------------------------------
+
+    _PERIOD_SPAN_DAYS = {"D": 1, "W": 7, "M": 31, "Y": 366}
+
+    def fetch_daily_chart(self, stock_code: str, period: str, count: int) -> list[RawDailyBar] | None:
+        period_code = period if period in self._PERIOD_SPAN_DAYS else "D"
+        count = max(1, min(count, 100))  # 실전계좌 기준 한 번의 호출로 최대 100건까지만 조회 가능
+        span_days = self._PERIOD_SPAN_DAYS[period_code] * (count + 10)  # 휴장일 등을 흡수할 여유
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=span_days)
+
+        rows = self._get_ranked(
+            "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
+            _CHART_TR_ID,
+            {
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_INPUT_ISCD": stock_code,
+                "FID_INPUT_DATE_1": start.strftime("%Y%m%d"),
+                "FID_INPUT_DATE_2": end.strftime("%Y%m%d"),
+                "FID_PERIOD_DIV_CODE": period_code,
+                "FID_ORG_ADJ_PRC": "0",  # 수정주가
+            },
+            output_key="output2",
+        )
+
+        bars: list[RawDailyBar] = []
+        for row in rows:
+            try:
+                bars.append(
+                    RawDailyBar(
+                        date=row["stck_bsop_date"],
+                        open=float(row["stck_oprc"]),
+                        high=float(row["stck_hgpr"]),
+                        low=float(row["stck_lwpr"]),
+                        close=float(row["stck_clpr"]),
+                        volume=int(float(row["acml_vol"])),
+                    )
+                )
+            except (KeyError, ValueError, TypeError):
+                continue
+
+        bars.sort(key=lambda b: b.date)
+        return bars[-count:]
+
+    # ---- 유니버스 밖 종목 단건 조회 -------------------------------------------
+
+    def fetch_single_stock(self, stock_code: str) -> RawStock | None:
+        """검색 등으로 임의 종목코드가 들어왔을 때, 큐레이션된 유니버스에 없어도
+        즉시 시세를 조회한다. 종목명/시장 구분은 KIS 시세 응답에 없으므로
+        stock_master(전종목 코드 마스터)에서 채운다."""
+        output = self._fetch_quote(stock_code)
+        if output is None:
+            return None
+
+        master_entry = next(
+            (e for e in get_stock_master() if e.stock_code == stock_code), None
+        )
+        name = master_entry.stock_name if master_entry else stock_code
+        market = master_entry.market if master_entry else "KOSPI"
+
+        now = datetime.now(timezone.utc)
+        stock = self._parse_stock(stock_code, name, market, None, output, now)
+        if stock is None:
+            return None
+
+        investor = self._fetch_investor(stock_code)
+        if investor is not None:
+            stock.foreign_net_buy, stock.institution_net_buy, stock.individual_net_buy = investor
+        return stock
 
     @staticmethod
     def _parse_index_output(output: dict) -> tuple[float, float, float] | None:

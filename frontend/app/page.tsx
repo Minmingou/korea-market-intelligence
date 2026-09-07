@@ -1,9 +1,17 @@
+import AiBrief from "@/components/AiBrief";
 import MarketMap from "@/components/MarketMap";
 import MarketMovers from "@/components/MarketMovers";
 import MarketOverview from "@/components/MarketOverview";
 import MoneyFlow from "@/components/MoneyFlow";
 import SectorTable from "@/components/SectorTable";
-import { getMarketMovers, getMarketOverview, getMoneyFlow, getSectors, getStocks } from "@/lib/api";
+import {
+  getMarketBrief,
+  getMarketMovers,
+  getMarketOverview,
+  getMoneyFlow,
+  getSectors,
+  getStocks,
+} from "@/lib/api";
 import type { MoverCategory } from "@/types/market";
 
 const MOVER_CATEGORIES: MoverCategory[] = [
@@ -24,11 +32,12 @@ async function safe<T>(promise: Promise<T>): Promise<T | null> {
 }
 
 export default async function DashboardPage() {
-  const [overview, stocks, sectors, moneyFlow, ...movers] = await Promise.all([
+  const [overview, stocks, sectors, moneyFlow, brief, ...movers] = await Promise.all([
     safe(getMarketOverview()),
     safe(getStocks()),
     safe(getSectors()),
     safe(getMoneyFlow()),
+    safe(getMarketBrief()),
     ...MOVER_CATEGORIES.map((category) => safe(getMarketMovers(category, { limit: 10 }))),
   ]);
 
@@ -85,9 +94,13 @@ export default async function DashboardPage() {
         </p>
       )}
 
-      <section className="border border-neutral-800 p-4 text-sm text-neutral-600">
-        AI MARKET BRIEF — STEP 9에서 구현 예정
-      </section>
+      {brief ? (
+        <AiBrief title="AI MARKET BRIEF" data={brief} />
+      ) : (
+        <p className="border border-red-900 p-4 text-sm text-red-400">
+          AI Market Brief를 불러올 수 없습니다 (N/A).
+        </p>
+      )}
     </main>
   );
 }

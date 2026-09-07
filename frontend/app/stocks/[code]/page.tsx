@@ -1,8 +1,9 @@
 import Link from "next/link";
+import AiBrief from "@/components/AiBrief";
 import CompanyFinancials from "@/components/CompanyFinancials";
 import DisclosureList from "@/components/DisclosureList";
 import NewsList from "@/components/NewsList";
-import { getCompanyFinancials, getDisclosures, getNews, getStock } from "@/lib/api";
+import { getCompanyFinancials, getDisclosures, getNews, getStock, getStockBrief } from "@/lib/api";
 import { changeColorClass, formatChangeRate, formatKRW, formatTime } from "@/lib/format";
 
 type PageProps = {
@@ -20,11 +21,12 @@ async function safe<T>(promise: Promise<T>): Promise<T | null> {
 export default async function StockDetailPage({ params }: PageProps) {
   const { code } = await params;
 
-  const [stock, financials, disclosures, news] = await Promise.all([
+  const [stock, financials, disclosures, news, brief] = await Promise.all([
     safe(getStock(code)),
     safe(getCompanyFinancials(code)),
     safe(getDisclosures(code, 10)),
     safe(getNews(code, 10)),
+    safe(getStockBrief(code)),
   ]);
 
   if (!stock) {
@@ -96,6 +98,14 @@ export default async function StockDetailPage({ params }: PageProps) {
       ) : (
         <p className="border border-red-900 p-4 text-sm text-red-400">
           뉴스 데이터를 불러올 수 없습니다 (N/A).
+        </p>
+      )}
+
+      {brief ? (
+        <AiBrief title="AI STOCK BRIEF" data={brief} />
+      ) : (
+        <p className="border border-red-900 p-4 text-sm text-red-400">
+          AI Stock Brief를 불러올 수 없습니다 (N/A).
         </p>
       )}
     </main>

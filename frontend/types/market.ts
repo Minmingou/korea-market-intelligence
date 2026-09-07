@@ -158,3 +158,16 @@ export interface NewsList {
   data_source: string;
   updated_at: string;
 }
+
+export interface MarketBrief {
+  summary: string;
+  data_source: string;
+  generated_at: string;
+}
+
+export interface StockBrief {
+  stock_code: string;
+  summary: string;
+  data_source: string;
+  generated_at: string;
+}

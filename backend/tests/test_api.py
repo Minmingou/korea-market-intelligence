@@ -115,3 +115,25 @@ def test_news_unknown_stock_returns_empty_list(client):
     res = client.get("/api/stocks/999999/news")
     assert res.status_code == 200
     assert res.json()["items"] == []
+
+
+def test_market_brief_endpoint(client):
+    res = client.get("/api/market/brief")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["data_source"] == "mock"
+    assert "KOSPI" in body["summary"]
+
+
+def test_stock_brief_endpoint(client):
+    res = client.get("/api/stocks/005930/brief")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["stock_code"] == "005930"
+    assert body["data_source"] == "mock"
+    assert "삼성전자" in body["summary"]
+
+
+def test_stock_brief_unknown_stock_returns_404(client):
+    res = client.get("/api/stocks/999999/brief")
+    assert res.status_code == 404

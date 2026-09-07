@@ -1,8 +1,10 @@
+from app.clients.brief_data_client import BriefDataClient
 from app.clients.dart_client import DartClient
 from app.clients.dart_data_client import DartDataClient
 from app.clients.kis_client import KISClient
 from app.clients.market_data_client import MarketDataClient
 from app.clients.mock_dart_client import MockDartClient
+from app.clients.mock_llm_client import MockLLMClient
 from app.clients.mock_market_client import MockMarketDataClient
 from app.clients.mock_news_client import MockNewsClient
 from app.clients.news_data_client import NewsDataClient
@@ -29,3 +31,11 @@ def get_news_client() -> NewsDataClient:
 
     # 실 뉴스 API 연동은 아직 구현되지 않았다 (STEP 8 범위: Mock만 우선 구현).
     raise NotImplementedError("실제 뉴스 API 연동이 아직 구현되지 않았습니다")
+
+
+def get_llm_client() -> BriefDataClient:
+    if settings.use_mock_llm:
+        return MockLLMClient()
+
+    # 실 LLM API 연동은 아직 구현되지 않았다 (STEP 9 범위: Mock만 우선 구현).
+    raise NotImplementedError("실제 LLM API 연동이 아직 구현되지 않았습니다")

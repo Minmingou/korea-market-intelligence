@@ -3,6 +3,7 @@ import type {
   DisclosureList,
   HealthStatus,
   Market,
+  MarketBrief,
   MarketOverview,
   MoneyFlow,
   MoverCategory,
@@ -10,6 +11,7 @@ import type {
   NewsList,
   Sector,
   Stock,
+  StockBrief,
 } from "@/types/market";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -86,4 +88,12 @@ export function getDisclosures(code: string, count?: number): Promise<Disclosure
 export function getNews(code: string, count?: number): Promise<NewsList> {
   const qs = count ? `?count=${count}` : "";
   return apiGet(`/api/stocks/${code}/news${qs}`);
+}
+
+export function getMarketBrief(): Promise<MarketBrief> {
+  return apiGet("/api/market/brief");
+}
+
+export function getStockBrief(code: string): Promise<StockBrief> {
+  return apiGet(`/api/stocks/${code}/brief`);
 }

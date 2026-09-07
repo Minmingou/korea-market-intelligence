@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     use_mock_data: bool = True
     use_mock_dart: bool = True
     use_mock_news: bool = True
+    use_mock_llm: bool = True
     cors_origins: list[str] = ["http://localhost:3000"]
 
 

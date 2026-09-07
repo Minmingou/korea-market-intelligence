@@ -2,7 +2,7 @@
 
 KOSPI/KOSDAQ 시장을 실시간에 가깝게 분석/시각화하는 웹 기반 금융 데이터 분석 플랫폼.
 
-> 현재 **STEP 8 (News 연동)** 완료 상태입니다. 실제 기능은 이후 STEP에서 단계적으로 추가됩니다.
+> 현재 **STEP 9 (AI Market Brief)** 완료 상태입니다. 실제 기능은 이후 STEP에서 단계적으로 추가됩니다.
 
 ## 기술 스택
 
@@ -20,8 +20,8 @@ korea-market-intelligence/
 │   │   ├── config.py        # 환경변수 기반 설정
 │   │   ├── database.py      # SQLAlchemy 엔진/세션
 │   │   ├── api/                # FastAPI 라우터 (market/stocks/sectors/flows/company)
-│   │   ├── clients/             # 시세/기업/뉴스 데이터 소스 (Mock/실제 KIS·DART 공용 인터페이스,
-│   │   │                         # 뉴스는 STEP 8 기준 Mock만 구현)
+│   │   ├── clients/             # 시세/기업/뉴스/브리핑 데이터 소스 (Mock/실제 KIS·DART 공용
+│   │   │                         # 인터페이스, 뉴스·LLM 브리핑은 STEP 8/9 기준 Mock만 구현)
 │   │   ├── services/            # 비즈니스 로직 (Refresh-if-stale, 스키마 조립)
 │   │   ├── repositories/        # DB 접근 계층 (Stock/MarketIndex/CompanyFinancials upsert·조회)
 │   │   ├── models/               # SQLAlchemy 모델 (Stock, MarketIndex, CompanyFinancials)
@@ -34,10 +34,10 @@ korea-market-intelligence/
 ├── frontend/
 │   ├── app/
 │   │   ├── page.tsx             # Dashboard (Market Overview/Map/Sector/Flow/Movers)
-│   │   ├── stocks/[code]/       # 종목 상세 페이지 (재무제표/공시 STEP 7, 뉴스 STEP 8)
+│   │   ├── stocks/[code]/       # 종목 상세 페이지 (재무제표/공시 STEP 7, 뉴스 STEP 8, 브리핑 STEP 9)
 │   │   └── layout.tsx
 │   ├── components/              # MarketOverview/MarketMap/SectorTable/MoneyFlow/MarketMovers/
-│   │                             # CompanyFinancials/DisclosureList/NewsList
+│   │                             # CompanyFinancials/DisclosureList/NewsList/AiBrief
 │   ├── lib/api.ts, format.ts    # Backend API 호출 및 포맷 헬퍼
 │   └── types/market.ts          # 공용 타입
 └── data/                        # SQLite DB 파일 위치
@@ -151,6 +151,30 @@ korea-market-intelligence/
   안정성(같은 시드 재현), 팩토리의 Mock/미구현 분기를 검증한다. `conftest.py`는 `USE_MOCK_NEWS`도
   항상 `true`로 강제한다.
 
+## AI Market Brief (STEP 9)
+
+- 대시보드와 종목 상세 페이지에 각각 "오늘의 시장 요약"/"이 종목 요약" 브리핑을 추가했다. STEP 8과
+  같은 이유로 **이번 STEP 범위도 Mock까지다** — `LLM_API_KEY`만 있고 어떤 LLM 공급자를 쓸지 아직
+  정해지지 않아 실제 연동은 이후 STEP으로 미뤘다 (사용자 확인 완료).
+  `BriefDataClient` 인터페이스(`generate_market_brief`/`generate_stock_brief`)만 정의해두고,
+  `MockLLMClient` 구현체만 우선 붙였다. `USE_MOCK_LLM=false`로 바꾸면 `get_llm_client()`가
+  `NotImplementedError`를 던진다 (뉴스와 동일한 원칙).
+  개발 원칙("금융 데이터 계산은 Python에서 수행하고 LLM은 해석/요약만 담당")에 따라, 실제 LLM을
+  붙이더라도 지수·업종·재무비율 등 숫자는 Service 계층이 이미 계산해 넘겨준 값을 그대로 서술하고,
+  LLM(현재는 Mock 템플릿)은 그 값을 문장으로 조립하는 역할만 한다.
+- `MockLLMClient`는 `MarketOverviewOut`/`SectorOut`(시장 브리핑)과 `StockOut`/
+  `CompanyFinancialsOut`/`NewsItemOut`(종목 브리핑)을 입력받아, 실제 계산된 숫자를 그대로 문장에
+  꽂아 넣는다 — 등락률/PER/ROE 등 어떤 값도 새로 지어내지 않는다. 재무·뉴스 데이터가 없으면
+  "N/A" 문장으로 대체한다.
+- 종목명 등 동적으로 들어가는 단어에 자연스러운 조사(은/는, 이/가)가 붙도록 한글 받침 유무를
+  판별하는 헬퍼(`_josa`)를 사용한다 (예: "삼성전자는", "전자부품이").
+- DB에 영속화하지 않고 요청마다 즉시 생성한다 (공시/뉴스와 동일한 이유). 브리핑 생성이 실패해도
+  전체 API가 죽지 않도록 try/except로 감싸고 "브리핑을 생성하지 못했습니다 (N/A)" 문장으로
+  대체한다.
+- 테스트(`tests/test_mock_llm_client.py`)는 시장/종목 브리핑 문장 조립, 빈 업종 리스트/재무·뉴스
+  없음 처리, 조사 선택 정확성, 팩토리의 Mock/미구현 분기를 검증한다. `conftest.py`는
+  `USE_MOCK_LLM`도 항상 `true`로 강제한다.
+
 ## API 엔드포인트
 
 | Method | Path | 설명 |
@@ -165,6 +189,8 @@ korea-market-intelligence/
 | GET | `/api/stocks/{code}/financials` | 기업 재무제표 + PER/PBR/ROE/EPS/BPS (STEP 7) |
 | GET | `/api/stocks/{code}/disclosures?count=` | 최근 공시 목록 (STEP 7) |
 | GET | `/api/stocks/{code}/news?count=` | 종목 관련 최근 뉴스 (STEP 8, 현재 Mock만 구현) |
+| GET | `/api/market/brief` | 시장 전체 AI 브리핑 (STEP 9, 현재 Mock만 구현) |
+| GET | `/api/stocks/{code}/brief` | 종목별 AI 브리핑 (STEP 9, 현재 Mock만 구현) |
 
 ## 실행 방법
 
@@ -203,8 +229,8 @@ python -m pytest -q
 
 분석 함수(등락률/거래량비율/업종집계/재무비율) 단위 테스트, API 엔드포인트 테스트, KIS
 클라이언트 테스트(토큰 발급/시세 파싱/재시도/N/A 처리), DART 클라이언트 테스트(corp_code 매핑/
-재무제표 폴백/공시 파싱), Mock 뉴스 클라이언트 테스트(시드 안정성/팩토리 분기)를 포함한다
-(총 83개, 전부 네트워크 Mock).
+재무제표 폴백/공시 파싱), Mock 뉴스 클라이언트 테스트(시드 안정성/팩토리 분기), Mock LLM 브리핑
+클라이언트 테스트(문장 조립/N/A 처리/조사 선택)를 포함한다 (총 93개, 전부 네트워크 Mock).
 
 ## 환경변수
 
@@ -221,6 +247,7 @@ USE_MOCK_DART=true   # false로 바꾸면 DartClient로 실제 재무제표/공�
 NEWS_API_KEY=
 USE_MOCK_NEWS=true   # 현재 Mock만 구현됨 (false로 바꾸면 NotImplementedError, STEP 8 범위 밖)
 LLM_API_KEY=
+USE_MOCK_LLM=true    # 현재 Mock만 구현됨 (false로 바꾸면 NotImplementedError, STEP 9 범위 밖)
 DATABASE_URL=sqlite:///../data/korea_market.db
 ```
 
@@ -250,7 +277,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - [x] STEP 6 — Market Movers
 - [x] STEP 7 — DART 연동
 - [x] STEP 8 — News (Mock만 구현, 실 API 연동은 이후 STEP)
-- [ ] STEP 9 — AI Market Brief
+- [x] STEP 9 — AI Market Brief (Mock만 구현, 실 LLM 연동은 이후 STEP)
 - [ ] STEP 10 — Dashboard 통합
 - [ ] STEP 11 — 테스트
 - [ ] STEP 12 — 문서화

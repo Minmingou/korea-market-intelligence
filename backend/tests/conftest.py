@@ -15,6 +15,7 @@ from app.main import app as fastapi_app
 settings.use_mock_data = True
 settings.use_mock_dart = True
 settings.use_mock_news = True
+settings.use_mock_llm = True
 
 test_engine = create_engine(
     "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool

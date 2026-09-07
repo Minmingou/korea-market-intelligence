@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     dart_base_url: str = "https://opendart.fss.or.kr/api"
     news_api_key: str | None = None
     llm_api_key: str | None = None
+    # KIS 실시세 사용 시 이 초(seconds)가 지나면 갱신 대상으로 본다. Mock은 항상
+    # "오늘 하루" 단위로 신선도를 판단하므로 이 값의 영향을 받지 않는다.
+    kis_refresh_interval_seconds: int = 30
 
     # Database
     database_url: str = "sqlite:///../data/korea_market.db"

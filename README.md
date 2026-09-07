@@ -103,6 +103,35 @@ korea-market-intelligence/
   `USE_MOCK_DATA` 값과 무관하게 테스트를 항상 Mock으로 강제해, 실제 API 키가 설정된
   개발 환경에서도 테스트가 외부 API를 호출하지 않도록 했다.
 
+### 시세 갱신 정책 (STEP 10에서 개선)
+
+STEP 4를 처음 붙였을 때는 `refresh_if_needed()`가 "오늘 날짜 데이터가 DB에 있으면
+그대로 반환"하는 하루 1회 기준이었다 — Mock이 "하루치 시나리오"를 한 번만 생성하도록
+설계된 것과 맞물려 있었는데, `USE_MOCK_DATA=false`로 실제 KIS를 붙여도 이 기준을
+그대로 물려받아 하루 안에는 새로고침을 아무리 눌러도 값이 안 바뀌는 문제가 있었다
+(STEP 10에서 새로고침 버튼을 만들다가 발견). 그래서 신선도 판단을 다음과 같이 데이터
+소스별로 분리했다(`app/services/market_service.py`):
+
+- **Mock**: 기존과 동일하게 UTC 기준 오늘 하루 단위로 판단한다 (매일 새 시나리오,
+  같은 날 안에서는 하루치 스토리가 흔들리지 않도록).
+- **KIS(실 데이터)**: `KIS_REFRESH_INTERVAL_SECONDS`(기본 30초)가 지나면 갱신 대상으로
+  본다.
+- KIS 현재가 조회는 69종목을 순차 호출해야 해서 한 번 갱신하는 데 십수 초가 걸린다.
+  이미 데이터가 있는 상태(콜드스타트가 아님)에서 갱신이 필요해지면, 그 요청을 붙잡아두지
+  않고 **백그라운드 스레드**에서 KIS를 호출하며 이번 요청은 기존(최대
+  `KIS_REFRESH_INTERVAL_SECONDS`초 정도 오래된) 데이터를 즉시 반환한다
+  (stale-while-revalidate 방식). 서버가 막 시작해 DB가 완전히 비어 있는 콜드스타트만
+  예외적으로 동기 대기한다.
+- 대시보드 SSR 한 번에 시세 관련 엔드포인트가 여러 개(overview/stocks/sectors/flows/
+  movers×6) 동시에 호출되므로, 모두가 "오래됐다"고 동시에 판단해 KIS를 중복 호출하지
+  않도록 프로세스 전역 락(`threading.Lock`, non-blocking)으로 한 번에 하나의 갱신만
+  허용한다 — 락을 못 잡은 요청은 그냥 기존 데이터로 응답한다.
+- 실제 KIS 키로 확인한 결과: `/api/stocks/005930` 요청은 캐시가 오래된 상태에서도
+  51ms만에 기존 데이터로 응답했고, 이후 첫 갱신 요청이 백그라운드에서 삼성전자
+  270,000원(+5.68%)을 정상적으로 받아와 `data_source: "kis"`로 갱신했다. 지수는
+  `data_source: "kis_estimated"`로, 프론트엔드 라벨은 "MOCK DATA"에서 "실시간"으로
+  자동 전환된다.
+
 ## DART 연동 (STEP 7)
 
 - `USE_MOCK_DART=false`로 설정하면 `DartClient`(`app/clients/dart_client.py`)가 금융감독원
@@ -266,6 +295,7 @@ KIS_APP_KEY=
 KIS_APP_SECRET=
 KIS_BASE_URL=https://openapi.koreainvestment.com:9443  # 모의투자: openapivts:29443
 USE_MOCK_DATA=true   # false로 바꾸면 KISClient로 실제 시세를 조회한다
+KIS_REFRESH_INTERVAL_SECONDS=30   # 실 KIS 사용 시 이 초가 지나면 백그라운드에서 재조회한다
 DART_API_KEY=
 DART_BASE_URL=https://opendart.fss.or.kr/api
 USE_MOCK_DART=true   # false로 바꾸면 DartClient로 실제 재무제표/공시를 조회한다

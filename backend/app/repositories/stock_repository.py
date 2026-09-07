@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,10 +11,14 @@ class StockRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def is_fresh(self, as_of: date) -> bool:
-        stmt = select(Stock.updated_at).limit(1)
-        row = self.db.execute(stmt).scalar_one_or_none()
-        return row is not None and row.astimezone(timezone.utc).date() == as_of
+    def has_any(self) -> bool:
+        stmt = select(Stock.id).limit(1)
+        return self.db.execute(stmt).scalar_one_or_none() is not None
+
+    def is_fresh_since(self, cutoff: datetime) -> bool:
+        stmt = select(Stock.updated_at).order_by(Stock.updated_at.desc()).limit(1)
+        updated_at = self.db.execute(stmt).scalar_one_or_none()
+        return updated_at is not None and updated_at.astimezone(timezone.utc) >= cutoff
 
     def upsert_many(self, raw_stocks: list[RawStock]) -> None:
         existing = {s.stock_code: s for s in self.db.execute(select(Stock)).scalars()}

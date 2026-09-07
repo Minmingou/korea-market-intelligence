@@ -1,4 +1,4 @@
-from datetime import date, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,9 +11,14 @@ class MarketRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def is_fresh(self, as_of: date) -> bool:
-        stmt = select(MarketIndex).where(MarketIndex.date == as_of).limit(1)
+    def has_any(self) -> bool:
+        stmt = select(MarketIndex.id).limit(1)
         return self.db.execute(stmt).scalar_one_or_none() is not None
+
+    def is_fresh_since(self, cutoff: datetime) -> bool:
+        stmt = select(MarketIndex.updated_at).order_by(MarketIndex.updated_at.desc()).limit(1)
+        updated_at = self.db.execute(stmt).scalar_one_or_none()
+        return updated_at is not None and updated_at.astimezone(timezone.utc) >= cutoff
 
     def upsert_many(self, raw_indices: list[RawMarketIndex]) -> None:
         for raw in raw_indices:

@@ -567,6 +567,30 @@ SCREENER(수급+기술적) 옆에 나란히 둘 밸류/퀄리티 스크리너, (
     작업 범위에는 포함하지 않았고, 4개 신호 중 1개가 항상 빠진 채 최대 3점까지만 나온다는
     점을 기록해둔다.
 
+## 종목 상세 수급 데이터 버그 수정 + MY SCREENER 조건 커스터마이즈 (사용자 피드백 반영)
+
+사용자가 종목 상세 페이지에서 외국인/기관 순매수가 안 뜨는 문제와, 대시보드 MY SCREENER가
+항상 빈 화면인 문제를 지적했다.
+
+- **종목 상세 외국인/기관 순매수 null 버그**: Market Movers(대시보드)는 정상 표시되는데
+  종목 상세만 null이었다. 원인은 `KISClient._fetch_investor()`(`kis_client.py`)가
+  `inquire-investor` 응답의 `output[0]`(당일/최신 행)만 사용했는데, 장중에는 당일 행의
+  `frgn_ntby_tr_pbmn` 등 필드가 빈 문자열(`""`)로 온다는 점이었다(장 종료 후에만 확정 값이
+  채워짐) - `float("")`가 `ValueError`를 던져 조용히 `None`을 반환했다. 스크리너용
+  `fetch_investor_history()`는 행마다 개별 try/except로 스킵하게 되어 있어 이 버그의 영향을
+  받지 않았다(그래서 스크리너/무버스는 멀쩡했음). 수정: 세 필드가 모두 정상 파싱되는
+  가장 최신 행을 찾도록 변경(빈 값이면 전일 행으로 폴백). 부수 효과로 MY SCREENER의 1단계
+  필터(오늘 외국인+기관 동시 순매수) 후보 풀도 늘었다.
+- **MY SCREENER 조건 커스터마이즈**: 기존에는 조건(연속 순매수 3일 이상·거래량 20일 평균
+  대비 1.5배 이상·이동평균 정배열 필수 여부·최소 점수)이 하드코딩되어 있어 오늘처럼 시장이
+  순매도 우세면 후보가 0개로 빈 화면만 나왔고, 사용자가 조절할 방법이 없었다.
+  `GET /api/screener`에 `streak_threshold`/`volume_surge_threshold`/`require_both`
+  (외국인·기관 동시 순매수 vs 둘 중 하나)/`min_score` 쿼리 파라미터를 추가하고, 프론트
+  `Screener.tsx`를 클라이언트 컴포넌트로 바꿔 "조건 조절하기" 폼(연속일수/거래량 배수/
+  동반매수 여부/최소 점수 입력)에서 즉시 재조회할 수 있게 했다. 서버에서 내려준 기본 조건
+  결과를 초기값으로 쓰고, 폼에서 조건을 바꿔 "조건 적용"을 누르면 브라우저가 백엔드를 직접
+  호출해 결과를 갱신한다.
+
 ## API 엔드포인트
 
 | Method | Path | 설명 |
@@ -588,7 +612,7 @@ SCREENER(수급+기술적) 옆에 나란히 둘 밸류/퀄리티 스크리너, (
 | GET | `/api/market/brief` | 시장 전체 AI 브리핑 (STEP 9, 현재 Mock만 구현) |
 | GET | `/api/stocks/{code}/brief` | 종목별 AI 브리핑 (STEP 9, 현재 Mock만 구현) |
 | GET | `/api/events?count=` | 시가총액 상위 종목들의 최근 공시 모음 (DART Events) |
-| GET | `/api/screener?market=&limit=` | 수급+기술적 스크리너 |
+| GET | `/api/screener?market=&limit=&streak_threshold=&volume_surge_threshold=&require_both=&min_score=` | 수급+기술적 스크리너 (조건 커스터마이즈 가능) |
 | GET | `/api/screener/value?market=&limit=` | 밸류/퀄리티 스크리너 |
 
 ## 실행 방법
@@ -634,7 +658,7 @@ DART 클라이언트 테스트(corp_code 매핑/재무제표 폴백/공시 파�
 백그라운드 갱신 분기), DART Events 집계 테스트(정렬/개수 제한/부분 실패 처리), 전체 시장
 Movers/차트/단건조회(`fetch_movers`/`fetch_daily_chart`/`fetch_single_stock`)와 종목 마스터
 파싱/검색 테스트, 수급/밸류 스크리너와 업종 비교 밸류에이션/분기별 실적 추이 테스트를
-포함한다 (총 213개, 전부 네트워크 Mock).
+포함한다 (총 218개, 전부 네트워크 Mock).
 
 ```bash
 cd frontend

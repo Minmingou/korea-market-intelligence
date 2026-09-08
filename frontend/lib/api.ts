@@ -117,10 +117,25 @@ export function searchStocks(query: string, limit?: number): Promise<StockSearch
   return apiGet(`/api/stocks/search?${search.toString()}`);
 }
 
-export function getScreener(params?: { market?: Market; limit?: number }): Promise<ScreenerResult> {
+export interface ScreenerConditions {
+  market?: Market;
+  limit?: number;
+  streak_threshold?: number;
+  volume_surge_threshold?: number;
+  require_both?: boolean;
+  min_score?: number;
+}
+
+export function getScreener(params?: ScreenerConditions): Promise<ScreenerResult> {
   const search = new URLSearchParams();
   if (params?.market) search.set("market", params.market);
   if (params?.limit) search.set("limit", String(params.limit));
+  if (params?.streak_threshold !== undefined) search.set("streak_threshold", String(params.streak_threshold));
+  if (params?.volume_surge_threshold !== undefined) {
+    search.set("volume_surge_threshold", String(params.volume_surge_threshold));
+  }
+  if (params?.require_both !== undefined) search.set("require_both", String(params.require_both));
+  if (params?.min_score !== undefined) search.set("min_score", String(params.min_score));
   const qs = search.toString();
   return apiGet(`/api/screener${qs ? `?${qs}` : ""}`);
 }

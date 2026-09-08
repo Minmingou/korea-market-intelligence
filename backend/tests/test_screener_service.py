@@ -103,3 +103,54 @@ def test_get_screener_respects_limit(mock_refresh, mock_repo_cls, mock_get_clien
 
     assert result.candidate_pool_size == 5
     assert len(result.items) == 2
+
+
+@patch("app.services.screener_service.get_market_data_client")
+@patch("app.services.screener_service.StockRepository")
+@patch("app.services.screener_service.refresh_if_needed")
+def test_get_screener_require_both_false_widens_pool(mock_refresh, mock_repo_cls, mock_get_client):
+    stocks = [
+        _make_stock("000001", foreign=100.0, institution=-50.0),  # 외국인만 순매수
+        _make_stock("000002", foreign=-50.0, institution=100.0),  # 기관만 순매수
+    ]
+    repo = MagicMock()
+    repo.get_all.return_value = stocks
+    mock_repo_cls.return_value = repo
+
+    client = MagicMock()
+    client.fetch_daily_chart.return_value = None
+    client.fetch_investor_history.return_value = None
+    mock_get_client.return_value = client
+
+    result_strict = screener_service.get_screener(MagicMock(), market=None, limit=10, require_both=True)
+    assert result_strict.candidate_pool_size == 0
+
+    result_relaxed = screener_service.get_screener(MagicMock(), market=None, limit=10, require_both=False)
+    assert result_relaxed.candidate_pool_size == 2
+
+
+@patch("app.services.screener_service.get_market_data_client")
+@patch("app.services.screener_service.StockRepository")
+@patch("app.services.screener_service.refresh_if_needed")
+def test_get_screener_custom_thresholds(mock_refresh, mock_repo_cls, mock_get_client):
+    stocks = [_make_stock("000001", foreign=100.0, institution=100.0)]
+    repo = MagicMock()
+    repo.get_all.return_value = stocks
+    mock_repo_cls.return_value = repo
+
+    client = MagicMock()
+    client.fetch_daily_chart.return_value = None
+    client.fetch_investor_history.return_value = [
+        RawInvestorFlow(date="20260907", foreign_net_buy=100.0, institution_net_buy=100.0, individual_net_buy=None)
+    ] * 2  # 2일 연속 -> 기본 임계값(3) 미달, 완화한 임계값(2)은 통과
+
+    mock_get_client.return_value = client
+
+    default_result = screener_service.get_screener(MagicMock(), market=None, limit=10)
+    assert default_result.items == []
+
+    relaxed_result = screener_service.get_screener(
+        MagicMock(), market=None, limit=10, streak_threshold=2, min_score=0
+    )
+    assert len(relaxed_result.items) == 1
+    assert relaxed_result.items[0].foreign_streak_days == 2

@@ -234,17 +234,18 @@ class KISClient(MarketDataClient):
                     logger.warning("KIS 투자자매매동향 조회 실패 (%s): %s", code, body.get("msg1"))
                     return None
                 rows = body.get("output") or []
-                if not rows:
-                    return None
-                try:
-                    latest = rows[0]
-                    foreign = float(latest["frgn_ntby_tr_pbmn"]) * _INVESTOR_UNIT_MULTIPLIER
-                    institution = float(latest["orgn_ntby_tr_pbmn"]) * _INVESTOR_UNIT_MULTIPLIER
-                    individual = float(latest["prsn_ntby_tr_pbmn"]) * _INVESTOR_UNIT_MULTIPLIER
-                except (KeyError, ValueError, TypeError, IndexError):
-                    logger.exception("KIS 투자자매매동향 응답 파싱 실패: %s", code)
-                    return None
-                return foreign, institution, individual
+                # 당일(장중) 행은 frgn_ntby_tr_pbmn 등이 빈 문자열로 오는 경우가 있어
+                # (장 종료 후에만 채워짐) rows[0]를 무조건 쓰지 않고, 세 필드가 모두
+                # 정상 파싱되는 가장 최신 행을 찾는다.
+                for row in rows:
+                    try:
+                        foreign = float(row["frgn_ntby_tr_pbmn"]) * _INVESTOR_UNIT_MULTIPLIER
+                        institution = float(row["orgn_ntby_tr_pbmn"]) * _INVESTOR_UNIT_MULTIPLIER
+                        individual = float(row["prsn_ntby_tr_pbmn"]) * _INVESTOR_UNIT_MULTIPLIER
+                    except (KeyError, ValueError, TypeError):
+                        continue
+                    return foreign, institution, individual
+                return None
 
         logger.warning("KIS 투자자매매동향 재시도 실패: %s (%s)", code, last_error)
         return None

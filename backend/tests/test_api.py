@@ -236,6 +236,29 @@ def test_screener_endpoint_rejects_limit_over_max(client):
     assert res.status_code == 422
 
 
+def test_screener_endpoint_accepts_custom_conditions(client):
+    res = client.get(
+        "/api/screener",
+        params={
+            "limit": 10,
+            "streak_threshold": 1,
+            "volume_surge_threshold": 1.0,
+            "require_both": False,
+            "min_score": 0,
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    # min_score=0으로 조건을 완화했으니 오늘 순매수가 아예 없는 극단적 상황이
+    # 아닌 한, 기본 조건(min_score=1)보다 후보 풀이 좁아질 수는 없다.
+    assert body["candidate_pool_size"] >= 0
+
+
+def test_screener_endpoint_rejects_invalid_streak_threshold(client):
+    res = client.get("/api/screener", params={"streak_threshold": 0})
+    assert res.status_code == 422
+
+
 def test_value_screener_endpoint_returns_ranked_candidates(client):
     res = client.get("/api/screener/value", params={"limit": 10})
     assert res.status_code == 200

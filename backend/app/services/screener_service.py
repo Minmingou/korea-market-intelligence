@@ -17,21 +17,35 @@ _CHART_BARS_NEEDED = 90  # MA60 계산에 필요한 최소 종가 수 + 여유 (
 _MIN_SCORE = 1  # 아무 신호도 없는 종목은 결과에서 제외
 
 
-def _stage1_candidates(stocks: list[Stock]) -> list[Stock]:
-    """1단계(저비용) 필터: 오늘 외국인+기관이 동시에 순매수 중인 종목만 추린다.
+def _stage1_candidates(stocks: list[Stock], require_both: bool) -> list[Stock]:
+    """1단계(저비용) 필터: 외국인/기관 순매수 종목만 추린다.
 
     DB에 이미 있는 값이라 추가 API 호출이 없다. 이 필터를 먼저 거쳐야만 2단계
     (종목당 차트+투자자이력 조회, 최소 2회 API 호출)의 비용을 감당할 수 있는
-    수준으로 후보 수를 줄일 수 있다.
+    수준으로 후보 수를 줄일 수 있다. `require_both`가 False면 외국인·기관 중
+    한쪽만 순매수여도 후보에 포함한다(조건을 완화해 후보 풀을 넓히고 싶을 때).
     """
-    return [s for s in stocks if (s.foreign_net_buy or 0) > 0 and (s.institution_net_buy or 0) > 0]
+    foreign_buying = lambda s: (s.foreign_net_buy or 0) > 0
+    institution_buying = lambda s: (s.institution_net_buy or 0) > 0
+    if require_both:
+        return [s for s in stocks if foreign_buying(s) and institution_buying(s)]
+    return [s for s in stocks if foreign_buying(s) or institution_buying(s)]
 
 
-def get_screener(db: Session, market: str | None = None, limit: int = 20) -> ScreenerResultOut:
+def get_screener(
+    db: Session,
+    market: str | None = None,
+    limit: int = 20,
+    *,
+    streak_threshold: int = _STREAK_THRESHOLD,
+    volume_surge_threshold: float = _VOLUME_SURGE_THRESHOLD,
+    require_both: bool = True,
+    min_score: int = _MIN_SCORE,
+) -> ScreenerResultOut:
     refresh_if_needed(db)
     repo = StockRepository(db)
     stocks = repo.get_all(market)
-    candidates = _stage1_candidates(stocks)
+    candidates = _stage1_candidates(stocks, require_both)
 
     client = get_market_data_client()
     results: list[ScreenerCandidateOut] = []
@@ -58,10 +72,10 @@ def get_screener(db: Session, market: str | None = None, limit: int = 20) -> Scr
             institution_streak=institution_streak,
             ma_aligned=ma_aligned,
             volume_ratio=volume_ratio,
-            streak_threshold=_STREAK_THRESHOLD,
-            volume_surge_threshold=_VOLUME_SURGE_THRESHOLD,
+            streak_threshold=streak_threshold,
+            volume_surge_threshold=volume_surge_threshold,
         )
-        if score < _MIN_SCORE:
+        if score < min_score:
             continue
 
         results.append(

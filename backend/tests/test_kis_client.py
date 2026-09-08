@@ -289,6 +289,35 @@ def test_fetch_investor_returns_none_on_empty_output(monkeypatch, tmp_path):
     assert client._fetch_investor("005930") is None
 
 
+def test_fetch_investor_falls_back_to_prior_day_when_latest_row_blank(monkeypatch, tmp_path):
+    # 장중에는 output[0](당일)의 pbmn 필드가 빈 문자열로 온다(장 종료 후 확정) -
+    # 이 경우 다음 행(직전 거래일)의 값을 써야 한다.
+    monkeypatch.setattr(settings, "kis_app_key", "test-key")
+    monkeypatch.setattr(settings, "kis_app_secret", "test-secret")
+    monkeypatch.setattr("app.clients.kis_client._TOKEN_CACHE_PATH", tmp_path / "kis_token_cache.json")
+
+    blank_today = _valid_investor_row(
+        stck_bsop_date="20260908",
+        frgn_ntby_tr_pbmn="",
+        orgn_ntby_tr_pbmn="",
+        prsn_ntby_tr_pbmn="",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json={"access_token": "fake-token", "expires_in": 86400})
+        return httpx.Response(
+            200, json={"rt_cd": "0", "msg1": "OK", "output": [blank_today, _valid_investor_row()]}
+        )
+
+    client = KISClient()
+    client._http = httpx.Client(base_url=settings.kis_base_url, transport=httpx.MockTransport(handler))
+
+    result = client._fetch_investor("005930")
+
+    assert result == (871112 * 1_000_000, 1221954 * 1_000_000, -2582260 * 1_000_000)
+
+
 def test_fetch_index_quote_retries_on_transient_500_then_succeeds(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "kis_app_key", "test-key")
     monkeypatch.setattr(settings, "kis_app_secret", "test-secret")

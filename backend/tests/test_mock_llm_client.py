@@ -70,8 +70,8 @@ def _stock() -> StockOut:
 
 def test_generate_market_brief_mentions_indices_and_extreme_sectors():
     overview = MarketOverviewOut(
-        kospi=_index("KOSPI", 2650.0, 1.2),
-        kosdaq=_index("KOSDAQ", 850.0, -0.5),
+        indices=[_index("KOSPI", 2650.0, 1.2), _index("KOSDAQ", 850.0, -0.5)],
+        country="KR",
         foreign_net_buy_total=100.0,
         institution_net_buy_total=-50.0,
         individual_net_buy_total=None,
@@ -91,8 +91,8 @@ def test_generate_market_brief_mentions_indices_and_extreme_sectors():
 
 def test_generate_market_brief_handles_empty_sectors():
     overview = MarketOverviewOut(
-        kospi=_index("KOSPI", 2650.0, 0.0),
-        kosdaq=_index("KOSDAQ", 850.0, 0.0),
+        indices=[_index("KOSPI", 2650.0, 0.0), _index("KOSDAQ", 850.0, 0.0)],
+        country="KR",
         foreign_net_buy_total=None,
         institution_net_buy_total=None,
         individual_net_buy_total=None,

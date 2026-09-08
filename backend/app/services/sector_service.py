@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.analysis.sector_analysis import aggregate_sectors
+from app.market_types import Country, resolve_markets
 from app.repositories.stock_repository import StockRepository
 from app.schemas.sector import SectorOut
 from app.services.market_service import refresh_if_needed
@@ -15,10 +16,16 @@ SORT_KEYS = {
 }
 
 
-def get_sectors(db: Session, market: str | None = None, sort_by: str = "change_rate") -> list[SectorOut]:
-    refresh_if_needed(db)
+def get_sectors(
+    db: Session,
+    market: str | None = None,
+    country: Country | None = None,
+    sort_by: str = "change_rate",
+) -> list[SectorOut]:
+    resolved_country, markets = resolve_markets(market, country)
+    refresh_if_needed(db, resolved_country)
     repo = StockRepository(db)
-    stocks = repo.get_all(market)
+    stocks = repo.get_all(markets)
     aggregates = aggregate_sectors(stocks)
 
     key = SORT_KEYS.get(sort_by, SORT_KEYS["change_rate"])

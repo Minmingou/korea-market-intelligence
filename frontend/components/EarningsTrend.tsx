@@ -2,16 +2,18 @@
 
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { FinancialsHistory } from "@/types/market";
-import { formatKRW } from "@/lib/format";
+import { filingsSourceLabel, formatMoney } from "@/lib/format";
 
 function EarningsTooltip({
   active,
   payload,
   label,
+  currency,
 }: {
   active?: boolean;
   payload?: Array<{ dataKey: string; value: number | null }>;
   label?: string;
+  currency: "KRW" | "USD";
 }) {
   if (!active || !payload?.length) return null;
   return (
@@ -19,14 +21,20 @@ function EarningsTooltip({
       <p className="mb-1 font-semibold">{label}</p>
       {payload.map((entry) => (
         <p key={entry.dataKey} className="text-neutral-300">
-          {entry.dataKey === "revenue" ? "매출액" : "영업이익"} {formatKRW(entry.value ?? null)}
+          {entry.dataKey === "revenue" ? "매출액" : "영업이익"} {formatMoney(entry.value ?? null, currency)}
         </p>
       ))}
     </div>
   );
 }
 
-export default function EarningsTrend({ data }: { data: FinancialsHistory }) {
+export default function EarningsTrend({
+  data,
+  currency,
+}: {
+  data: FinancialsHistory;
+  currency: "KRW" | "USD";
+}) {
   const chartData = data.items.map((item) => ({
     label: item.report_label.replace(/^\d{4}년\s*/, ""),
     revenue: item.revenue,
@@ -49,10 +57,10 @@ export default function EarningsTrend({ data }: { data: FinancialsHistory }) {
               <XAxis dataKey="label" tick={{ fill: "#a3a3a3", fontSize: 11 }} />
               <YAxis
                 tick={{ fill: "#a3a3a3", fontSize: 11 }}
-                tickFormatter={(value: number) => formatKRW(value)}
+                tickFormatter={(value: number) => formatMoney(value, currency)}
                 width={70}
               />
-              <Tooltip content={<EarningsTooltip />} />
+              <Tooltip content={<EarningsTooltip currency={currency} />} />
               <Legend
                 formatter={(value: string) => (value === "revenue" ? "매출액" : "영업이익")}
                 wrapperStyle={{ fontSize: 11, color: "#a3a3a3" }}
@@ -64,7 +72,7 @@ export default function EarningsTrend({ data }: { data: FinancialsHistory }) {
         </div>
       )}
       <p className="mt-2 text-xs text-neutral-400">
-        {data.data_source === "mock" ? "MOCK DATA" : "DART 전자공시"}
+        {filingsSourceLabel(data.data_source)}
       </p>
     </section>
   );

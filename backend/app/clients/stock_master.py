@@ -148,21 +148,34 @@ def build_code_market_index(entries: list[StockMasterEntry] | None = None) -> di
 
 
 def search_stock_master(query: str, entries: list[StockMasterEntry] | None = None, limit: int = 10) -> list[StockMasterEntry]:
-    """종목코드/종목명으로 검색한다. 코드 완전일치 -> 이름 시작 -> 이름 포함 순으로 우선한다."""
+    """종목코드/종목명으로 검색한다. 코드 완전일치 -> 이름 시작 -> 이름 포함 순으로 우선한다.
+
+    미국 티커/영문 종목명은 대소문자를 구분하지 않고 매칭한다(국내 종목명은 한글이라
+    영향이 없다) - 대소문자 무관 비교로 통일해 "apple"로 "Apple"을 찾을 수 있게 한다.
+    """
     query = query.strip()
     if not query:
         return []
     entries = entries if entries is not None else get_stock_master()
 
-    exact_code = [e for e in entries if e.stock_code == query]
-    name_starts = [e for e in entries if e.stock_name.startswith(query) and e not in exact_code]
+    query_upper = query.upper()
+    query_fold = query.casefold()
+
+    exact_code = [e for e in entries if e.stock_code.upper() == query_upper]
+    name_starts = [
+        e for e in entries if e.stock_name.casefold().startswith(query_fold) and e not in exact_code
+    ]
     name_contains = [
-        e for e in entries if query in e.stock_name and e not in exact_code and e not in name_starts
+        e
+        for e in entries
+        if query_fold in e.stock_name.casefold()
+        and e not in exact_code
+        and e not in name_starts
     ]
     code_contains = [
         e
         for e in entries
-        if query.upper() in e.stock_code
+        if query_upper in e.stock_code.upper()
         and e not in exact_code
         and e not in name_starts
         and e not in name_contains

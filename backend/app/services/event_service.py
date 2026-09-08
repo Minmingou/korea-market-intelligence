@@ -3,8 +3,10 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.clients import get_dart_client
+from app.clients import get_filings_client
 from app.clients.mock_dart_client import MockDartClient
+from app.clients.mock_us_filings_client import MockSecEdgarClient
+from app.market_types import Country, markets_for
 from app.repositories.stock_repository import StockRepository
 from app.schemas.event import MarketEventListOut, MarketEventOut
 
@@ -17,11 +19,14 @@ _WATCHLIST_SIZE = 15
 _DISCLOSURES_PER_STOCK = 3
 
 
-def get_market_events(db: Session, count: int = 10) -> MarketEventListOut:
-    client = get_dart_client()
-    data_source = "mock" if isinstance(client, MockDartClient) else "dart"
+def get_market_events(db: Session, count: int = 10, country: Country = "KR") -> MarketEventListOut:
+    client = get_filings_client(country)
+    if isinstance(client, (MockDartClient, MockSecEdgarClient)):
+        data_source = "mock"
+    else:
+        data_source = "dart" if country == "KR" else "sec_edgar"
 
-    top_stocks = StockRepository(db).get_all()[:_WATCHLIST_SIZE]
+    top_stocks = StockRepository(db).get_all(list(markets_for(country)))[:_WATCHLIST_SIZE]
 
     events: list[MarketEventOut] = []
     for stock in top_stocks:

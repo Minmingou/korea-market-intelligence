@@ -5,7 +5,8 @@ export interface HealthStatus {
   checked_at: string;
 }
 
-export type Market = "KOSPI" | "KOSDAQ";
+export type Market = "KOSPI" | "KOSDAQ" | "NYSE" | "NASDAQ";
+export type Country = "KR" | "US";
 
 export interface Stock {
   stock_code: string;
@@ -43,8 +44,8 @@ export interface MarketIndexData {
 }
 
 export interface MarketOverview {
-  kospi: MarketIndexData;
-  kosdaq: MarketIndexData;
+  indices: MarketIndexData[];
+  country: Country;
   foreign_net_buy_total: number | null;
   institution_net_buy_total: number | null;
   individual_net_buy_total: number | null;

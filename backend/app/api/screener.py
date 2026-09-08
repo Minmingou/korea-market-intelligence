@@ -1,9 +1,8 @@
-from typing import Literal
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.market_types import Country, Market
 from app.schemas.screener import ScreenerResultOut
 from app.schemas.value_screener import ValueScreenerResultOut
 from app.services import screener_service, value_screener_service
@@ -22,7 +21,8 @@ router = APIRouter(prefix="/api/screener", tags=["screener"])
     ),
 )
 def get_screener(
-    market: Literal["KOSPI", "KOSDAQ"] | None = None,
+    market: Market | None = None,
+    country: Country | None = None,
     limit: int = Query(20, ge=1, le=50),
     streak_threshold: int = Query(3, ge=1, le=10, description="외국인/기관 연속 순매수 최소 일수"),
     volume_surge_threshold: float = Query(
@@ -35,6 +35,7 @@ def get_screener(
     return screener_service.get_screener(
         db,
         market=market,
+        country=country,
         limit=limit,
         streak_threshold=streak_threshold,
         volume_surge_threshold=volume_surge_threshold,
@@ -55,8 +56,9 @@ def get_screener(
     ),
 )
 def get_value_screener(
-    market: Literal["KOSPI", "KOSDAQ"] | None = None,
+    market: Market | None = None,
+    country: Country | None = None,
     limit: int = Query(20, ge=1, le=50),
     db: Session = Depends(get_db),
 ) -> ValueScreenerResultOut:
-    return value_screener_service.get_value_screener(db, market=market, limit=limit)
+    return value_screener_service.get_value_screener(db, market=market, country=country, limit=limit)

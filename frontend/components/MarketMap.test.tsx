@@ -75,7 +75,7 @@ describe("MarketMap", () => {
   });
 
   it("defaults to KOSPI and only shows KOSPI 종목", () => {
-    render(<MarketMap stocks={stocks} />);
+    render(<MarketMap stocks={stocks} country="KR" />);
 
     expect(screen.getByRole("button", { name: "삼성전자" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "SK하이닉스" })).toBeInTheDocument();
@@ -83,7 +83,7 @@ describe("MarketMap", () => {
   });
 
   it("switches to KOSDAQ 종목 when the KOSDAQ 필터를 클릭하면", () => {
-    render(<MarketMap stocks={stocks} />);
+    render(<MarketMap stocks={stocks} country="KR" />);
 
     fireEvent.click(screen.getByRole("button", { name: "KOSDAQ" }));
 
@@ -92,7 +92,7 @@ describe("MarketMap", () => {
   });
 
   it("filters by 종목 검색 (name or code)", () => {
-    render(<MarketMap stocks={stocks} />);
+    render(<MarketMap stocks={stocks} country="KR" />);
 
     fireEvent.change(screen.getByPlaceholderText("종목 검색"), {
       target: { value: "SK" },
@@ -103,7 +103,7 @@ describe("MarketMap", () => {
   });
 
   it("shows an empty-state message when the search matches nothing", () => {
-    render(<MarketMap stocks={stocks} />);
+    render(<MarketMap stocks={stocks} country="KR" />);
 
     fireEvent.change(screen.getByPlaceholderText("종목 검색"), {
       target: { value: "존재하지않는종목" },
@@ -113,7 +113,7 @@ describe("MarketMap", () => {
   });
 
   it("navigates to the stock detail page when a tile is clicked", () => {
-    render(<MarketMap stocks={stocks} />);
+    render(<MarketMap stocks={stocks} country="KR" />);
 
     fireEvent.click(screen.getByRole("button", { name: "삼성전자" }));
 
@@ -121,7 +121,7 @@ describe("MarketMap", () => {
   });
 
   it("switches to 업종별 view and groups stocks into broad categories", () => {
-    render(<MarketMap stocks={stocks} />);
+    render(<MarketMap stocks={stocks} country="KR" />);
 
     fireEvent.click(screen.getByRole("button", { name: "업종별" }));
 
@@ -131,7 +131,7 @@ describe("MarketMap", () => {
   });
 
   it("filters to a category's stocks when its 업종 tile is clicked", () => {
-    render(<MarketMap stocks={stocks} />);
+    render(<MarketMap stocks={stocks} country="KR" />);
 
     fireEvent.click(screen.getByRole("button", { name: "업종별" }));
     fireEvent.click(screen.getByRole("button", { name: "반도체" }));

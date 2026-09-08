@@ -9,6 +9,7 @@ import NewsList from "@/components/NewsList";
 import PeerValuation from "@/components/PeerValuation";
 import RefreshButton from "@/components/RefreshButton";
 import StockChart from "@/components/StockChart";
+import WatchlistButton from "@/components/WatchlistButton";
 import {
   getCompanyFinancials,
   getDisclosures,
@@ -18,7 +19,8 @@ import {
   getStock,
   getStockBrief,
 } from "@/lib/api";
-import { changeColorClass, formatChangeRate, formatKRW, formatTime } from "@/lib/format";
+import { changeColorClass, formatChangeRate, formatMoney, formatPrice, formatTime } from "@/lib/format";
+import { currencyForMarket } from "@/lib/market";
 
 type PageProps = {
   params: Promise<{ code: string }>;
@@ -59,6 +61,8 @@ export default async function StockDetailPage({ params }: PageProps) {
     );
   }
 
+  const currency = currencyForMarket(stock.market);
+
   return (
     <main className="flex-1 space-y-6 p-4 font-mono lg:p-6">
       <AutoRefresh />
@@ -72,26 +76,29 @@ export default async function StockDetailPage({ params }: PageProps) {
       <header className="border border-neutral-800 p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">{stock.stock_name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight">{stock.stock_name}</h1>
+              <WatchlistButton stockCode={stock.stock_code} />
+            </div>
             <p className="mt-1 text-xs text-neutral-300">
               {stock.stock_code} · {stock.market} · {stock.sector}
             </p>
           </div>
           <div className="text-right">
             <div className="text-2xl font-semibold tabular-nums">
-              {stock.price.toLocaleString("ko-KR")}
+              {formatPrice(stock.price, currency)}
             </div>
             <div className={`text-sm tabular-nums ${changeColorClass(stock.change_rate)}`}>
-              {stock.change > 0 ? "▲" : stock.change < 0 ? "▼" : "-"} {Math.abs(stock.change).toLocaleString("ko-KR")} (
+              {stock.change > 0 ? "▲" : stock.change < 0 ? "▼" : "-"} {formatPrice(Math.abs(stock.change), currency)} (
               {formatChangeRate(stock.change_rate)})
             </div>
           </div>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 border-t border-neutral-900 pt-3 text-xs text-neutral-300 sm:grid-cols-4">
-          <span>시가총액 {formatKRW(stock.market_cap)}</span>
-          <span>거래대금 {formatKRW(stock.trading_value)}</span>
-          <span>외국인 순매수 {formatKRW(stock.foreign_net_buy)}</span>
-          <span>기관 순매수 {formatKRW(stock.institution_net_buy)}</span>
+          <span>시가총액 {formatMoney(stock.market_cap, currency)}</span>
+          <span>거래대금 {formatMoney(stock.trading_value, currency)}</span>
+          <span>외국인 순매수 {formatMoney(stock.foreign_net_buy, currency)}</span>
+          <span>기관 순매수 {formatMoney(stock.institution_net_buy, currency)}</span>
         </div>
         <p className="mt-2 text-xs text-neutral-400">
           기준 시각: {formatTime(stock.updated_at)} · {stock.data_source === "mock" ? "MOCK DATA" : "실시간"}
@@ -100,7 +107,7 @@ export default async function StockDetailPage({ params }: PageProps) {
 
       <StockChart stockCode={stock.stock_code} />
 
-      <DailyPriceTable stockCode={stock.stock_code} />
+      <DailyPriceTable stockCode={stock.stock_code} currency={currency} />
 
       {brief ? (
         <AiBrief title="AI STOCK BRIEF" data={brief} />
@@ -111,7 +118,7 @@ export default async function StockDetailPage({ params }: PageProps) {
       )}
 
       {financials ? (
-        <CompanyFinancials data={financials} />
+        <CompanyFinancials data={financials} currency={currency} />
       ) : (
         <p className="border border-red-900 p-4 text-sm text-red-400">
           재무제표 데이터를 불러올 수 없습니다 (N/A).
@@ -127,7 +134,7 @@ export default async function StockDetailPage({ params }: PageProps) {
       )}
 
       {financialsHistory ? (
-        <EarningsTrend data={financialsHistory} />
+        <EarningsTrend data={financialsHistory} currency={currency} />
       ) : (
         <p className="border border-red-900 p-4 text-sm text-red-400">
           분기별 실적 추이 데이터를 불러올 수 없습니다 (N/A).

@@ -19,7 +19,7 @@ def _disclosure(rcept_no: str, rcept_dt: str) -> RawDisclosure:
 
 
 @patch("app.services.event_service.StockRepository")
-@patch("app.services.event_service.get_dart_client")
+@patch("app.services.event_service.get_filings_client")
 def test_get_market_events_sorts_by_date_descending(mock_get_client, mock_repo_cls):
     mock_repo_cls.return_value.get_all.return_value = [
         _stock("005930", "삼성전자"),
@@ -39,7 +39,7 @@ def test_get_market_events_sorts_by_date_descending(mock_get_client, mock_repo_c
 
 
 @patch("app.services.event_service.StockRepository")
-@patch("app.services.event_service.get_dart_client")
+@patch("app.services.event_service.get_filings_client")
 def test_get_market_events_truncates_to_count(mock_get_client, mock_repo_cls):
     mock_repo_cls.return_value.get_all.return_value = [_stock("005930", "삼성전자")]
     client = MagicMock(spec=MockDartClient)
@@ -54,7 +54,7 @@ def test_get_market_events_truncates_to_count(mock_get_client, mock_repo_cls):
 
 
 @patch("app.services.event_service.StockRepository")
-@patch("app.services.event_service.get_dart_client")
+@patch("app.services.event_service.get_filings_client")
 def test_get_market_events_skips_stock_on_client_error(mock_get_client, mock_repo_cls):
     mock_repo_cls.return_value.get_all.return_value = [
         _stock("005930", "삼성전자"),
@@ -73,7 +73,7 @@ def test_get_market_events_skips_stock_on_client_error(mock_get_client, mock_rep
 
 
 @patch("app.services.event_service.StockRepository")
-@patch("app.services.event_service.get_dart_client")
+@patch("app.services.event_service.get_filings_client")
 def test_get_market_events_data_source_reflects_client_type(mock_get_client, mock_repo_cls):
     mock_repo_cls.return_value.get_all.return_value = []
     mock_get_client.return_value = MockDartClient()

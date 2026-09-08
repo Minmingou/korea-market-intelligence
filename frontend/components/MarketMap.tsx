@@ -3,9 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ResponsiveContainer, Tooltip, Treemap } from "recharts";
-import type { Market, Stock } from "@/types/market";
-import { changeColorClass, formatChangeRate, formatKRW } from "@/lib/format";
+import type { Country, Market, Stock } from "@/types/market";
+import { changeColorClass, formatChangeRate, formatMoney, formatPrice } from "@/lib/format";
 import { heatColor } from "@/lib/format";
+import { MARKETS_BY_COUNTRY, currencyForMarket } from "@/lib/market";
 import { getCategory } from "@/lib/sectorCategory";
 
 type MapView = "stock" | "sector";
@@ -20,6 +21,7 @@ interface TreemapDatum {
   volume: number;
   foreignNetBuy: number | null;
   institutionNetBuy: number | null;
+  currency: "KRW" | "USD";
   [key: string]: unknown;
 }
 
@@ -33,6 +35,7 @@ interface CategoryDatum {
   declining: number;
   topMoverName: string;
   topMoverRate: number;
+  currency: "KRW" | "USD";
   [key: string]: unknown;
 }
 
@@ -92,13 +95,13 @@ function TreemapTooltip({
       <p className="mb-1 font-semibold">
         {data.name} <span className="text-neutral-300">({data.code})</span>
       </p>
-      <p>현재가 {data.price.toLocaleString("ko-KR")}원</p>
+      <p>현재가 {formatPrice(data.price, data.currency)}</p>
       <p className={changeColorClass(data.changeRate)}>등락률 {formatChangeRate(data.changeRate)}</p>
-      <p className="text-neutral-400">시가총액 {formatKRW(data.value)}</p>
-      <p className="text-neutral-400">거래대금 {formatKRW(data.tradingValue)}</p>
+      <p className="text-neutral-400">시가총액 {formatMoney(data.value, data.currency)}</p>
+      <p className="text-neutral-400">거래대금 {formatMoney(data.tradingValue, data.currency)}</p>
       <p className="text-neutral-400">거래량 {data.volume.toLocaleString("ko-KR")}</p>
-      <p className="text-neutral-400">외국인 순매수 {formatKRW(data.foreignNetBuy)}</p>
-      <p className="text-neutral-400">기관 순매수 {formatKRW(data.institutionNetBuy)}</p>
+      <p className="text-neutral-400">외국인 순매수 {formatMoney(data.foreignNetBuy, data.currency)}</p>
+      <p className="text-neutral-400">기관 순매수 {formatMoney(data.institutionNetBuy, data.currency)}</p>
     </div>
   );
 }
@@ -167,7 +170,7 @@ function CategoryTooltip({
       <p className={changeColorClass(data.changeRate)}>
         등락률(시총가중) {formatChangeRate(data.changeRate)}
       </p>
-      <p className="text-neutral-400">시가총액 {formatKRW(data.value)}</p>
+      <p className="text-neutral-400">시가총액 {formatMoney(data.value, data.currency)}</p>
       <p className="text-neutral-400">
         상승 {data.advancing} · 하락 {data.declining}
       </p>
@@ -179,9 +182,10 @@ function CategoryTooltip({
   );
 }
 
-export default function MarketMap({ stocks }: { stocks: Stock[] }) {
+export default function MarketMap({ stocks, country }: { stocks: Stock[]; country: Country }) {
   const router = useRouter();
-  const [market, setMarket] = useState<Market>("KOSPI");
+  const markets = MARKETS_BY_COUNTRY[country];
+  const [market, setMarket] = useState<Market>(markets[0]);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<MapView>("stock");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
@@ -198,6 +202,8 @@ export default function MarketMap({ stocks }: { stocks: Stock[] }) {
     return searched;
   }, [stocks, market, query, view, categoryFilter]);
 
+  const currency = currencyForMarket(market);
+
   const stockData: TreemapDatum[] = useMemo(
     () =>
       filtered.map((s) => ({
@@ -210,8 +216,9 @@ export default function MarketMap({ stocks }: { stocks: Stock[] }) {
         volume: s.volume,
         foreignNetBuy: s.foreign_net_buy,
         institutionNetBuy: s.institution_net_buy,
+        currency,
       })),
-    [filtered]
+    [filtered, currency]
   );
 
   // 업종(대분류)별로 시가총액 합계/시총가중 평균 등락률을 집계한다.
@@ -240,9 +247,10 @@ export default function MarketMap({ stocks }: { stocks: Stock[] }) {
         declining: items.filter((s) => s.change_rate < 0).length,
         topMoverName: topMover.stock_name,
         topMoverRate: topMover.change_rate,
+        currency,
       };
     });
-  }, [filtered]);
+  }, [filtered, currency]);
 
   const data = view === "stock" ? stockData : categoryData;
 
@@ -284,7 +292,7 @@ export default function MarketMap({ stocks }: { stocks: Stock[] }) {
             ))}
           </div>
           <div className="flex border border-neutral-700 text-xs">
-            {(["KOSPI", "KOSDAQ"] as const).map((m) => (
+            {markets.map((m) => (
               <button
                 key={m}
                 onClick={() => setMarket(m)}

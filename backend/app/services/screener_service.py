@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.analysis.flow_analysis import calculate_volume_ratio
 from app.analysis.screener_analysis import calculate_streak, is_ma_aligned, score_candidate
 from app.clients import get_market_data_client
+from app.market_types import Country, resolve_markets
 from app.models.stock import Stock
 from app.repositories.stock_repository import StockRepository
 from app.schemas.screener import ScreenerCandidateOut, ScreenerResultOut
@@ -35,6 +36,7 @@ def _stage1_candidates(stocks: list[Stock], require_both: bool) -> list[Stock]:
 def get_screener(
     db: Session,
     market: str | None = None,
+    country: Country | None = None,
     limit: int = 20,
     *,
     streak_threshold: int = _STREAK_THRESHOLD,
@@ -42,12 +44,13 @@ def get_screener(
     require_both: bool = True,
     min_score: int = _MIN_SCORE,
 ) -> ScreenerResultOut:
-    refresh_if_needed(db)
+    resolved_country, markets = resolve_markets(market, country)
+    refresh_if_needed(db, resolved_country)
     repo = StockRepository(db)
-    stocks = repo.get_all(market)
+    stocks = repo.get_all(markets)
     candidates = _stage1_candidates(stocks, require_both)
 
-    client = get_market_data_client()
+    client = get_market_data_client(resolved_country)
     results: list[ScreenerCandidateOut] = []
 
     for stock in candidates:

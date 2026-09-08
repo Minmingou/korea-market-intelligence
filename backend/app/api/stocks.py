@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.market_data_client import MAX_CHART_COUNT
 from app.database import get_db
+from app.market_types import Country, Market
 from app.schemas.stock import MoverCategoryOut, StockChartOut, StockOut, StockSearchOut
 from app.services import stock_service
 
@@ -27,11 +28,12 @@ MoverCategory = Literal[
     description="시장(KOSPI/KOSDAQ) 전체 종목을 지정한 기준으로 정렬해 반환한다 (Market Map 등에서 사용).",
 )
 def list_stocks(
-    market: Literal["KOSPI", "KOSDAQ"] | None = None,
+    market: Market | None = None,
+    country: Country | None = None,
     sort_by: Literal["market_cap", "change_rate", "trading_value"] = "market_cap",
     db: Session = Depends(get_db),
 ) -> list[StockOut]:
-    return stock_service.get_stocks(db, market=market, sort_by=sort_by)
+    return stock_service.get_stocks(db, market=market, country=country, sort_by=sort_by)
 
 
 @router.get(
@@ -42,11 +44,14 @@ def list_stocks(
 )
 def get_movers(
     category: MoverCategory,
-    market: Literal["KOSPI", "KOSDAQ"] | None = None,
+    market: Market | None = None,
+    country: Country | None = None,
     limit: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
 ) -> MoverCategoryOut:
-    return stock_service.get_market_movers(db, category=category, market=market, limit=limit)
+    return stock_service.get_market_movers(
+        db, category=category, market=market, country=country, limit=limit
+    )
 
 
 @router.get(
@@ -58,8 +63,9 @@ def get_movers(
 def search_stocks(
     q: str = Query(..., min_length=1, description="종목코드 또는 종목명(부분 일치)"),
     limit: int = Query(10, ge=1, le=50),
+    country: Country | None = None,
 ) -> StockSearchOut:
-    return stock_service.search_stocks(q, limit=limit)
+    return stock_service.search_stocks(q, limit=limit, country=country)
 
 
 @router.get(

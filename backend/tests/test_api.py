@@ -8,9 +8,17 @@ def test_market_overview(client):
     res = client.get("/api/market/overview")
     assert res.status_code == 200
     body = res.json()
-    assert body["kospi"]["market"] == "KOSPI"
-    assert body["kosdaq"]["market"] == "KOSDAQ"
+    assert body["country"] == "KR"
+    assert [idx["market"] for idx in body["indices"]] == ["KOSPI", "KOSDAQ"]
     assert "updated_at" in body
+
+
+def test_market_overview_us(client):
+    res = client.get("/api/market/overview", params={"country": "US"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["country"] == "US"
+    assert [idx["market"] for idx in body["indices"]] == ["NYSE", "NASDAQ"]
 
 
 def test_list_stocks_returns_at_least_50(client):

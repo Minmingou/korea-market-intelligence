@@ -11,12 +11,18 @@ class StockRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def has_any(self) -> bool:
-        stmt = select(Stock.id).limit(1)
+    def has_any(self, markets: list[str] | None = None) -> bool:
+        stmt = select(Stock.id)
+        if markets:
+            stmt = stmt.where(Stock.market.in_(markets))
+        stmt = stmt.limit(1)
         return self.db.execute(stmt).scalar_one_or_none() is not None
 
-    def is_fresh_since(self, cutoff: datetime) -> bool:
-        stmt = select(Stock.updated_at).order_by(Stock.updated_at.desc()).limit(1)
+    def is_fresh_since(self, cutoff: datetime, markets: list[str] | None = None) -> bool:
+        stmt = select(Stock.updated_at)
+        if markets:
+            stmt = stmt.where(Stock.market.in_(markets))
+        stmt = stmt.order_by(Stock.updated_at.desc()).limit(1)
         updated_at = self.db.execute(stmt).scalar_one_or_none()
         if updated_at is None:
             return False
@@ -61,10 +67,11 @@ class StockRepository:
 
         self.db.commit()
 
-    def get_all(self, market: str | None = None) -> list[Stock]:
+    def get_all(self, markets: str | list[str] | None = None) -> list[Stock]:
         stmt = select(Stock)
-        if market:
-            stmt = stmt.where(Stock.market == market)
+        if markets:
+            markets = [markets] if isinstance(markets, str) else markets
+            stmt = stmt.where(Stock.market.in_(markets))
         stmt = stmt.order_by(Stock.market_cap.desc())
         return list(self.db.execute(stmt).scalars())
 

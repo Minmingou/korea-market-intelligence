@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { MoverCategory, MoverCategoryResult } from "@/types/market";
-import { changeColorClass, formatChangeRate, formatKRW } from "@/lib/format";
+import { changeColorClass, formatChangeRate, formatMoney } from "@/lib/format";
+import { currencyForMarket } from "@/lib/market";
 
 const CATEGORY_LABELS: Record<MoverCategory, string> = {
   top_gainers: "상승률 TOP 10",
@@ -16,18 +17,28 @@ function valueForCategory(category: MoverCategory, stock: MoverCategoryResult["i
     case "top_gainers":
     case "top_losers":
       return <span className={changeColorClass(stock.change_rate)}>{formatChangeRate(stock.change_rate)}</span>;
-    case "top_trading_value":
-      return <span className="text-neutral-300">{formatKRW(stock.trading_value)}</span>;
+    case "top_trading_value": {
+      const currency = currencyForMarket(stock.market);
+      return <span className="text-neutral-300">{formatMoney(stock.trading_value, currency)}</span>;
+    }
     case "top_volume":
       return <span className="text-neutral-300">{stock.volume.toLocaleString("ko-KR")}주</span>;
-    case "foreign_net_buy":
-      return <span className={changeColorClass(stock.foreign_net_buy)}>{formatKRW(stock.foreign_net_buy)}</span>;
-    case "institution_net_buy":
+    case "foreign_net_buy": {
+      const currency = currencyForMarket(stock.market);
       return (
-        <span className={changeColorClass(stock.institution_net_buy)}>
-          {formatKRW(stock.institution_net_buy)}
+        <span className={changeColorClass(stock.foreign_net_buy)}>
+          {formatMoney(stock.foreign_net_buy, currency)}
         </span>
       );
+    }
+    case "institution_net_buy": {
+      const currency = currencyForMarket(stock.market);
+      return (
+        <span className={changeColorClass(stock.institution_net_buy)}>
+          {formatMoney(stock.institution_net_buy, currency)}
+        </span>
+      );
+    }
   }
 }
 

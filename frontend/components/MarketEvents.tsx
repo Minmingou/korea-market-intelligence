@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type { MarketEventList } from "@/types/market";
+import { filingsSourceLabel } from "@/lib/format";
 
 function formatDisclosureDate(rceptDt: string): string {
   if (rceptDt.length !== 8) return rceptDt;
@@ -13,7 +14,7 @@ export default function MarketEvents({ data }: { data: MarketEventList }) {
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold tracking-wide text-neutral-400">KEY EVENTS</h2>
         <span className="text-xs text-neutral-400">
-          {data.data_source === "mock" ? "MOCK DATA" : "DART 전자공시"}
+          {filingsSourceLabel(data.data_source)}
         </span>
       </div>
 

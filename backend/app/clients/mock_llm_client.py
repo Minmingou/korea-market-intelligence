@@ -8,6 +8,7 @@
 from datetime import datetime, timezone
 
 from app.clients.brief_data_client import BriefDataClient, RawBrief
+from app.market_types import CURRENCY_BY_COUNTRY, country_for_market
 from app.schemas.company import CompanyFinancialsOut
 from app.schemas.market import MarketOverviewOut
 from app.schemas.news import NewsItemOut
@@ -46,18 +47,24 @@ def _flow_word(net_buy: float | None) -> str:
     return "보합"
 
 
+def _format_price(price: float, currency: str) -> str:
+    if currency == "USD":
+        return f"${price:,.2f}"
+    return f"{price:,.0f}원"
+
+
 class MockLLMClient(BriefDataClient):
     def generate_market_brief(
         self, overview: MarketOverviewOut, sectors: list[SectorOut]
     ) -> RawBrief:
-        kospi = overview.kospi
-        kosdaq = overview.kosdaq
+        index_sentences = [
+            f"{idx.market}{_josa(idx.market, '은', '는')} {idx.index_value:,.2f}"
+            f"({idx.change_rate:+.2f}%)로 {_direction(idx.change_rate)} 마감"
+            for idx in overview.indices
+        ]
 
         lines = [
-            f"KOSPI는 {kospi.index_value:,.2f}({kospi.change_rate:+.2f}%)로 "
-            f"{_direction(kospi.change_rate)} 마감, KOSDAQ은 "
-            f"{kosdaq.index_value:,.2f}({kosdaq.change_rate:+.2f}%)로 "
-            f"{_direction(kosdaq.change_rate)} 마감했습니다.",
+            ", ".join(index_sentences) + "했습니다.",
             f"외국인은 {_flow_word(overview.foreign_net_buy_total)}, "
             f"기관은 {_flow_word(overview.institution_net_buy_total)} 흐름을 보였습니다.",
         ]
@@ -85,8 +92,9 @@ class MockLLMClient(BriefDataClient):
         news: list[NewsItemOut],
     ) -> RawBrief:
         name_josa = _josa(stock.stock_name, "은", "는")
+        currency = CURRENCY_BY_COUNTRY[country_for_market(stock.market)]
         lines = [
-            f"{stock.stock_name}({stock.stock_code}){name_josa} 현재 {stock.price:,.0f}원"
+            f"{stock.stock_name}({stock.stock_code}){name_josa} 현재 {_format_price(stock.price, currency)}"
             f"({stock.change_rate:+.2f}%)에 거래되며 {_direction(stock.change_rate)} 흐름입니다."
         ]
 

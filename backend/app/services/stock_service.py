@@ -4,8 +4,10 @@ from sqlalchemy.orm import Session
 
 from app.analysis.flow_analysis import calculate_volume_ratio, top_n_by
 from app.clients import get_market_data_client
-from app.clients.stock_master import get_stock_master, search_stock_master
+from app.clients.mock_us_universe import US_STOCK_UNIVERSE
+from app.clients.stock_master import StockMasterEntry, get_stock_master, search_stock_master
 from app.config import settings
+from app.market_types import Country, guess_country, resolve_markets
 from app.models.stock import Stock
 from app.repositories.stock_repository import StockRepository
 from app.schemas.stock import (
@@ -17,6 +19,10 @@ from app.schemas.stock import (
     StockSearchResultOut,
 )
 from app.services.market_service import refresh_if_needed
+
+_US_MASTER_ENTRIES = [
+    StockMasterEntry(stock_code=e[0], stock_name=e[1], market=e[2]) for e in US_STOCK_UNIVERSE
+]
 
 SORT_KEYS = {
     "market_cap": lambda s: s.market_cap,
@@ -79,17 +85,24 @@ def _raw_to_stock_out(raw) -> StockOut:
     )
 
 
-def get_stocks(db: Session, market: str | None = None, sort_by: str = "market_cap") -> list[StockOut]:
-    refresh_if_needed(db)
+def get_stocks(
+    db: Session,
+    market: str | None = None,
+    country: Country | None = None,
+    sort_by: str = "market_cap",
+) -> list[StockOut]:
+    resolved_country, markets = resolve_markets(market, country)
+    refresh_if_needed(db, resolved_country)
     repo = StockRepository(db)
-    stocks = repo.get_all(market)
+    stocks = repo.get_all(markets)
     key = SORT_KEYS.get(sort_by, SORT_KEYS["market_cap"])
     stocks = sorted(stocks, key=key, reverse=True)
     return [_to_stock_out(s) for s in stocks]
 
 
 def get_stock(db: Session, stock_code: str) -> StockOut | None:
-    refresh_if_needed(db)
+    country = guess_country(stock_code)
+    refresh_if_needed(db, country)
     repo = StockRepository(db)
     stock = repo.get_by_code(stock_code)
     if stock is not None:
@@ -98,7 +111,7 @@ def get_stock(db: Session, stock_code: str) -> StockOut | None:
     # 큐레이션된 유니버스(mock_universe.STOCK_UNIVERSE)에 없는 종목코드다. 검색으로
     # 전종목 중 하나를 골랐을 수 있으므로, DB에 없다고 바로 404 처리하지 않고
     # 클라이언트에 단건 조회를 한 번 더 시도한다 (지원하지 않으면 None을 반환한다).
-    client = get_market_data_client()
+    client = get_market_data_client(country)
     raw = client.fetch_single_stock(stock_code)
     if raw is None:
         return None
@@ -107,15 +120,20 @@ def get_stock(db: Session, stock_code: str) -> StockOut | None:
 
 
 def get_market_movers(
-    db: Session, category: str, market: str | None = None, limit: int = 10
+    db: Session,
+    category: str,
+    market: str | None = None,
+    country: Country | None = None,
+    limit: int = 10,
 ) -> MoverCategoryOut:
-    refresh_if_needed(db)
+    resolved_country, markets = resolve_markets(market, country)
+    refresh_if_needed(db, resolved_country)
     if category not in MOVER_CATEGORIES:
         raise ValueError(f"Unknown mover category: {category}")
 
     # 전체 시장 기준 순위 API를 지원하는 클라이언트(KIS)는 이를 우선 쓴다 - 종목
     # 유니버스에 갇히지 않고 상/하한가 등 실제 시장 전체의 움직임을 반영한다.
-    client = get_market_data_client()
+    client = get_market_data_client(resolved_country)
     ranked = client.fetch_movers(category, market, limit)
     if ranked is not None:
         now = datetime.now(timezone.utc)
@@ -131,7 +149,7 @@ def get_market_movers(
     # 폴백: 순위 API를 지원하지 않는 클라이언트(Mock)는 fetch_stocks()로 채운
     # 종목 목록에서 직접 순위를 계산한다.
     repo = StockRepository(db)
-    stocks = repo.get_all(market)
+    stocks = repo.get_all(markets)
     key = MOVER_CATEGORIES[category]
     # 해당 카테고리 값이 없는 종목(예: 투자자별 순매수를 제공하지 않는 KIS 데이터)은
     # 순위에서 제외한다 — None을 0처럼 취급해 순위를 지어내지 않기 위함.
@@ -148,8 +166,12 @@ def get_market_movers(
     )
 
 
-def search_stocks(query: str, limit: int = 10) -> StockSearchOut:
-    matches = search_stock_master(query, get_stock_master(), limit=limit)
+def search_stocks(query: str, limit: int = 10, country: Country | None = None) -> StockSearchOut:
+    # 국내는 KIS 전종목 마스터(약 4,400개)에서, 미국은 큐레이션된 Mock 유니버스
+    # (~55개) 안에서 검색한다 - search_stock_master는 entries만 바꿔주면 그대로
+    # 재사용할 수 있는 범용 매칭 알고리즘이라 미국용 새 검색 로직이 필요 없다.
+    entries = _US_MASTER_ENTRIES if country == "US" else get_stock_master()
+    matches = search_stock_master(query, entries, limit=limit)
     return StockSearchOut(
         query=query,
         items=[
@@ -160,10 +182,12 @@ def search_stocks(query: str, limit: int = 10) -> StockSearchOut:
 
 
 def get_daily_chart(stock_code: str, period: str = "D", count: int = 100) -> StockChartOut | None:
-    client = get_market_data_client()
+    country = guess_country(stock_code)
+    client = get_market_data_client(country)
     bars = client.fetch_daily_chart(stock_code, period, count)
     if bars is None or not bars:
         return None
+    use_mock = settings.use_mock_data if country == "KR" else settings.use_mock_us_data
     return StockChartOut(
         stock_code=stock_code,
         period=period,
@@ -179,6 +203,6 @@ def get_daily_chart(stock_code: str, period: str = "D", count: int = 100) -> Sto
             )
             for b in bars
         ],
-        data_source="mock" if settings.use_mock_data else "kis",
+        data_source="mock" if use_mock else "kis",
         updated_at=datetime.now(timezone.utc),
     )

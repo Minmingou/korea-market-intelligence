@@ -18,16 +18,26 @@ from app.clients.market_data_client import (
 )
 from app.clients.mock_universe import STOCK_UNIVERSE, TIER_AVG_VOLUME, TIER_MARKET_CAP
 
-BASE_INDEX_VALUE = {"KOSPI": 2650.0, "KOSDAQ": 850.0}
-
 # 종목별 변동폭을 완전 무작위가 아니라 "업종 공통 흐름 + 개별 노이즈"로 만들어서
 # Sector Analysis/Money Flow가 그럴듯한 이야기(업종 전체가 같이 움직임)를 갖도록 한다.
 _SECTOR_BIAS_RANGE = (-3.0, 4.0)
 _STOCK_NOISE_SIGMA = 1.5
-_CHANGE_RATE_LIMIT = 29.9  # KRX 상하한가(±30%)에 근접하지 않도록 여유를 둔 근사치
 
 
-class MockMarketDataClient(MarketDataClient):
+class BaseMockMarketDataClient(MarketDataClient):
+    """유니버스/티어값/기준지수값을 서브클래스가 채우는 Mock 시세 생성 엔진.
+
+    국내(`MockMarketDataClient`)와 미국(`MockUSMarketDataClient`)이 생성 알고리즘
+    자체는 그대로 공유하고, "어떤 종목들이 있고 등락폭 상한이 얼마인가"만 다르게
+    가져간다 — 생성 로직을 두 번 베끼지 않기 위한 공통 베이스다.
+    """
+
+    universe: list[tuple[str, str, str, str, int, str]]
+    tier_market_cap: dict[str, float]
+    tier_avg_volume: dict[str, float]
+    base_index_value: dict[str, float]
+    change_rate_limit: float
+
     def __init__(self) -> None:
         seed = int(datetime.now(timezone.utc).strftime("%Y%m%d"))
         self._rng = random.Random(seed)
@@ -38,23 +48,23 @@ class MockMarketDataClient(MarketDataClient):
             return self._stocks_cache
 
         rng = self._rng
-        sectors = {entry[3] for entry in STOCK_UNIVERSE}
+        sectors = {entry[3] for entry in self.universe}
         sector_bias = {sector: rng.uniform(*_SECTOR_BIAS_RANGE) for sector in sectors}
         now = datetime.now(timezone.utc)
 
         stocks: list[RawStock] = []
-        for code, name, market, sector, base_price, tier in STOCK_UNIVERSE:
+        for code, name, market, sector, base_price, tier in self.universe:
             pct_move = sector_bias[sector] + rng.gauss(0, _STOCK_NOISE_SIGMA)
-            pct_move = max(-_CHANGE_RATE_LIMIT, min(_CHANGE_RATE_LIMIT, pct_move))
+            pct_move = max(-self.change_rate_limit, min(self.change_rate_limit, pct_move))
 
             price = round(base_price * (1 + pct_move / 100) / 10) * 10
             change = calculate_change(price, base_price)
             change_rate = calculate_change_rate(price, base_price)
 
-            shares_outstanding = TIER_MARKET_CAP[tier] / base_price
+            shares_outstanding = self.tier_market_cap[tier] / base_price
             market_cap = calculate_market_cap(price, shares_outstanding)
 
-            avg_volume_20d = int(TIER_AVG_VOLUME[tier] * rng.uniform(0.85, 1.15))
+            avg_volume_20d = int(self.tier_avg_volume[tier] * rng.uniform(0.85, 1.15))
             volume_multiplier = rng.uniform(0.5, 1.2) + abs(change_rate) * 0.15
             volume = int(avg_volume_20d * volume_multiplier)
             trading_value = calculate_trading_value(price, volume)
@@ -95,7 +105,7 @@ class MockMarketDataClient(MarketDataClient):
         now = datetime.now(timezone.utc)
         indices: list[RawMarketIndex] = []
 
-        for market, base_index_value in BASE_INDEX_VALUE.items():
+        for market, base_index_value in self.base_index_value.items():
             market_stocks = [s for s in stocks if s.market == market]
             total_cap = sum_by(market_stocks, lambda s: s.market_cap)
             change_rate = (
@@ -130,7 +140,7 @@ class MockMarketDataClient(MarketDataClient):
 
     @staticmethod
     def _business_days_back(end: datetime, count: int) -> list[datetime]:
-        # 실제 KRX 거래일과 마찬가지로 토/일은 건너뛴다(공휴일까지는 반영하지 않음).
+        # 실제 거래일과 마찬가지로 토/일은 건너뛴다(공휴일까지는 반영하지 않음).
         dates: list[datetime] = []
         cursor = end
         while len(dates) < count:
@@ -237,3 +247,11 @@ class MockMarketDataClient(MarketDataClient):
                 )
             )
         return flows
+
+
+class MockMarketDataClient(BaseMockMarketDataClient):
+    universe = STOCK_UNIVERSE
+    tier_market_cap = TIER_MARKET_CAP
+    tier_avg_volume = TIER_AVG_VOLUME
+    base_index_value = {"KOSPI": 2650.0, "KOSDAQ": 850.0}
+    change_rate_limit = 29.9  # KRX 상하한가(±30%)에 근접하지 않도록 여유를 둔 근사치

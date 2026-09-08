@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { getSectors } from "@/lib/api";
-import { changeColorClass, formatChangeRate, formatKRW } from "@/lib/format";
-import type { Sector } from "@/types/market";
+import { changeColorClass, formatChangeRate, formatMoney } from "@/lib/format";
+import { currencyForMarket } from "@/lib/market";
+import type { Country, Sector } from "@/types/market";
 
 type SortBy = "change_rate" | "trading_value" | "foreign_net_buy" | "institution_net_buy";
 
@@ -28,7 +29,13 @@ function sortValue(sector: Sector, sortBy: SortBy): number {
   }
 }
 
-export default function SectorTable({ initialSectors }: { initialSectors: Sector[] }) {
+export default function SectorTable({
+  initialSectors,
+  country,
+}: {
+  initialSectors: Sector[];
+  country: Country;
+}) {
   const [sectors, setSectors] = useState(initialSectors);
   const [sortBy, setSortBy] = useState<SortBy>("change_rate");
   const [isPending, startTransition] = useTransition();
@@ -37,7 +44,7 @@ export default function SectorTable({ initialSectors }: { initialSectors: Sector
     setSortBy(next);
     startTransition(async () => {
       try {
-        const data = await getSectors({ sort_by: next });
+        const data = await getSectors({ sort_by: next, country });
         setSectors(data);
       } catch {
         // API 오류 시 이전 데이터를 그대로 유지한다.
@@ -81,7 +88,7 @@ export default function SectorTable({ initialSectors }: { initialSectors: Sector
                 {formatChangeRate(sector.avg_change_rate)}
               </span>
               <span className="hidden text-neutral-300 sm:inline">
-                {formatKRW(sector.trading_value)}
+                {formatMoney(sector.trading_value, currencyForMarket(sector.market))}
               </span>
             </span>
           </li>

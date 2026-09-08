@@ -95,30 +95,33 @@ function stock(code: string, name: string, market: Market = "KOSPI"): Stock {
 }
 
 const overview: MarketOverview = {
-  kospi: {
-    market: "KOSPI",
-    index_value: 2700,
-    change: 10,
-    change_rate: 0.37,
-    foreign_net_buy: null,
-    institution_net_buy: null,
-    individual_net_buy: null,
-    total_trading_value: 1,
-    data_source: "mock",
-    updated_at: "2026-09-07T00:00:00Z",
-  },
-  kosdaq: {
-    market: "KOSDAQ",
-    index_value: 850,
-    change: -2,
-    change_rate: -0.23,
-    foreign_net_buy: null,
-    institution_net_buy: null,
-    individual_net_buy: null,
-    total_trading_value: 1,
-    data_source: "mock",
-    updated_at: "2026-09-07T00:00:00Z",
-  },
+  indices: [
+    {
+      market: "KOSPI",
+      index_value: 2700,
+      change: 10,
+      change_rate: 0.37,
+      foreign_net_buy: null,
+      institution_net_buy: null,
+      individual_net_buy: null,
+      total_trading_value: 1,
+      data_source: "mock",
+      updated_at: "2026-09-07T00:00:00Z",
+    },
+    {
+      market: "KOSDAQ",
+      index_value: 850,
+      change: -2,
+      change_rate: -0.23,
+      foreign_net_buy: null,
+      institution_net_buy: null,
+      individual_net_buy: null,
+      total_trading_value: 1,
+      data_source: "mock",
+      updated_at: "2026-09-07T00:00:00Z",
+    },
+  ],
+  country: "KR",
   foreign_net_buy_total: null,
   institution_net_buy_total: null,
   individual_net_buy_total: null,
@@ -212,7 +215,7 @@ describe("DashboardPage", () => {
   it("renders every section when all API calls succeed", async () => {
     mockAllSucceed();
 
-    render(await DashboardPage());
+    render(await DashboardPage({ searchParams: Promise.resolve({}) }));
 
     expect(screen.getByText("KOREA MARKET INTELLIGENCE")).toBeInTheDocument();
     expect(screen.getByText(brief.summary)).toBeInTheDocument();
@@ -228,7 +231,7 @@ describe("DashboardPage", () => {
     mockAllSucceed();
     mockedGetMarketOverview.mockRejectedValue(new Error("KIS API 오류"));
 
-    render(await DashboardPage());
+    render(await DashboardPage({ searchParams: Promise.resolve({}) }));
 
     expect(
       screen.getByText("Market Overview 데이터를 불러올 수 없습니다 (N/A)."),
@@ -243,7 +246,7 @@ describe("DashboardPage", () => {
     mockAllSucceed();
     mockedGetMarketMovers.mockRejectedValue(new Error("KIS API 오류"));
 
-    render(await DashboardPage());
+    render(await DashboardPage({ searchParams: Promise.resolve({}) }));
 
     expect(
       screen.getByText("Market Movers 데이터를 불러올 수 없습니다 (N/A)."),
@@ -253,11 +256,21 @@ describe("DashboardPage", () => {
   it("requests every mover category with a limit of 10", async () => {
     mockAllSucceed();
 
-    render(await DashboardPage());
+    render(await DashboardPage({ searchParams: Promise.resolve({}) }));
 
     expect(mockedGetMarketMovers).toHaveBeenCalledTimes(MOVER_CATEGORIES.length);
     for (const category of MOVER_CATEGORIES) {
-      expect(mockedGetMarketMovers).toHaveBeenCalledWith(category, { limit: 10 });
+      expect(mockedGetMarketMovers).toHaveBeenCalledWith(category, { limit: 10, country: "KR" });
     }
+  });
+
+  it("switches to the US market when ?country=us is given", async () => {
+    mockAllSucceed();
+
+    render(await DashboardPage({ searchParams: Promise.resolve({ country: "us" }) }));
+
+    expect(screen.getByText("US MARKET INTELLIGENCE")).toBeInTheDocument();
+    expect(mockedGetMarketOverview).toHaveBeenCalledWith("US");
+    expect(mockedGetStocks).toHaveBeenCalledWith({ country: "US" });
   });
 });

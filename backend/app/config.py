@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     use_mock_dart: bool = True
     use_mock_news: bool = True
     use_mock_llm: bool = True
+    # 미국 시장(NYSE/NASDAQ)은 KR과 독립적으로 Mock/실제를 고른다 - 실 API는 아직
+    # 미구현이라 false로 바꾸면 LLM과 동일하게 NotImplementedError가 난다.
+    use_mock_us_data: bool = True
+    use_mock_us_filings: bool = True
     # 개발 서버 기본 포트(3000)와, 이 프로젝트에서 실제로 띄워 쓰는 포트(3100) 둘 다
     # 허용한다 - 검색/차트 같은 클라이언트 컴포넌트가 브라우저에서 직접 API를
     # 호출하면서 CORS가 처음으로 실제 걸리는 문제가 있었다.

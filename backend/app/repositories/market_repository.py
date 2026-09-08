@@ -11,12 +11,18 @@ class MarketRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def has_any(self) -> bool:
-        stmt = select(MarketIndex.id).limit(1)
+    def has_any(self, markets: list[str] | None = None) -> bool:
+        stmt = select(MarketIndex.id)
+        if markets:
+            stmt = stmt.where(MarketIndex.market.in_(markets))
+        stmt = stmt.limit(1)
         return self.db.execute(stmt).scalar_one_or_none() is not None
 
-    def is_fresh_since(self, cutoff: datetime) -> bool:
-        stmt = select(MarketIndex.updated_at).order_by(MarketIndex.updated_at.desc()).limit(1)
+    def is_fresh_since(self, cutoff: datetime, markets: list[str] | None = None) -> bool:
+        stmt = select(MarketIndex.updated_at)
+        if markets:
+            stmt = stmt.where(MarketIndex.market.in_(markets))
+        stmt = stmt.order_by(MarketIndex.updated_at.desc()).limit(1)
         updated_at = self.db.execute(stmt).scalar_one_or_none()
         if updated_at is None:
             return False

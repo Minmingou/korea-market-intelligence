@@ -19,8 +19,10 @@ class MarketIndexOut(BaseModel):
 
 
 class MarketOverviewOut(BaseModel):
-    kospi: MarketIndexOut
-    kosdaq: MarketIndexOut
+    # 국내는 [KOSPI, KOSDAQ], 미국은 [NYSE, NASDAQ] 순서로 2개가 들어온다 - 고정된
+    # kospi/kosdaq 필드 대신 리스트로 일반화해 국가가 늘어나도 스키마가 그대로다.
+    indices: list[MarketIndexOut]
+    country: str = "KR"
     foreign_net_buy_total: float | None
     institution_net_buy_total: float | None
     individual_net_buy_total: float | None

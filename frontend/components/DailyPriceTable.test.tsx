@@ -75,7 +75,7 @@ describe("DailyPriceTable", () => {
     mockedGetStockChart.mockResolvedValue(chart(makeBars(40)));
     mockedGetCompanyFinancials.mockResolvedValue(financials());
 
-    render(<DailyPriceTable stockCode="005930" />);
+    render(<DailyPriceTable stockCode="005930" currency="KRW" />);
 
     await waitFor(() => expect(screen.getAllByRole("row")).toHaveLength(1 + 21)); // 헤더 + 21행
     const firstDataRow = screen.getAllByRole("row")[1];
@@ -86,7 +86,7 @@ describe("DailyPriceTable", () => {
     mockedGetStockChart.mockResolvedValue(chart(makeBars(40)));
     mockedGetCompanyFinancials.mockResolvedValue(financials());
 
-    render(<DailyPriceTable stockCode="005930" />);
+    render(<DailyPriceTable stockCode="005930" currency="KRW" />);
     await waitFor(() => expect(screen.getAllByRole("row")).toHaveLength(22));
 
     fireEvent.click(screen.getByRole("button", { name: /더보기/ }));
@@ -99,7 +99,7 @@ describe("DailyPriceTable", () => {
     mockedGetStockChart.mockResolvedValue(chart([bar({ date: "20260105", close: 200 })]));
     mockedGetCompanyFinancials.mockResolvedValue(financials({ eps: 100, bps: 50 }));
 
-    render(<DailyPriceTable stockCode="005930" />);
+    render(<DailyPriceTable stockCode="005930" currency="KRW" />);
 
     const row = await screen.findByText("2026-01-05");
     expect(row.closest("tr")).toHaveTextContent("2.00"); // PER = 200/100
@@ -110,7 +110,7 @@ describe("DailyPriceTable", () => {
     mockedGetStockChart.mockResolvedValue(chart([bar({ date: "20260105" })]));
     mockedGetCompanyFinancials.mockRejectedValue(new Error("N/A"));
 
-    render(<DailyPriceTable stockCode="005930" />);
+    render(<DailyPriceTable stockCode="005930" currency="KRW" />);
 
     const row = await screen.findByText("2026-01-05");
     expect(row.closest("tr")).toHaveTextContent("N/A");

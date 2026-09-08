@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.analysis.flow_analysis import sum_optional_by, top_n_by
 from app.analysis.sector_analysis import aggregate_sectors
+from app.market_types import Country, resolve_markets
 from app.models.stock import Stock
 from app.repositories.stock_repository import StockRepository
 from app.schemas.flow import InvestorTotals, MoneyFlowOut, SectorFlowItem, StockFlowItem
@@ -29,10 +30,16 @@ def _sector_flow_items(sectors: list[dict], field: str, top_n: int) -> list[Sect
     return [SectorFlowItem(sector_name=s["sector_name"], net_buy=s[field]) for s in ranked]
 
 
-def get_money_flow(db: Session, market: str | None = None, top_n: int = 10) -> MoneyFlowOut:
-    refresh_if_needed(db)
+def get_money_flow(
+    db: Session,
+    market: str | None = None,
+    country: Country | None = None,
+    top_n: int = 10,
+) -> MoneyFlowOut:
+    resolved_country, markets = resolve_markets(market, country)
+    refresh_if_needed(db, resolved_country)
     repo = StockRepository(db)
-    stocks = repo.get_all(market)
+    stocks = repo.get_all(markets)
 
     totals = InvestorTotals(
         foreign=sum_optional_by(stocks, lambda s: s.foreign_net_buy),

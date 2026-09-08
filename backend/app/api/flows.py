@@ -1,9 +1,8 @@
-from typing import Literal
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.market_types import Country, Market
 from app.schemas.flow import MoneyFlowOut
 from app.services import flow_service
 
@@ -17,8 +16,9 @@ router = APIRouter(prefix="/api/flows", tags=["flows"])
     description="외국인/기관/개인 순매수 상위 업종·종목 TOP N을 반환한다.",
 )
 def get_money_flow(
-    market: Literal["KOSPI", "KOSDAQ"] | None = None,
+    market: Market | None = None,
+    country: Country | None = None,
     top_n: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
 ) -> MoneyFlowOut:
-    return flow_service.get_money_flow(db, market=market, top_n=top_n)
+    return flow_service.get_money_flow(db, market=market, country=country, top_n=top_n)

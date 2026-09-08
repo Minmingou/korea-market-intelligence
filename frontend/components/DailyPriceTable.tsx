@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getCompanyFinancials, getStockChart } from "@/lib/api";
-import { changeColorClass, formatKRW } from "@/lib/format";
+import { changeColorClass, formatMoney, formatPrice } from "@/lib/format";
 import type { CompanyFinancials, DailyBar } from "@/types/market";
 
 const PAGE_SIZE = 21; // 주말 제외 영업일 기준 한 달치(약 4.3주 x 5일)
@@ -19,7 +19,13 @@ function trailingRatio(close: number, base: number | null): string {
   return (close / base).toFixed(2);
 }
 
-export default function DailyPriceTable({ stockCode }: { stockCode: string }) {
+export default function DailyPriceTable({
+  stockCode,
+  currency,
+}: {
+  stockCode: string;
+  currency: "KRW" | "USD";
+}) {
   const [bars, setBars] = useState<DailyBar[] | null>(null);
   const [financials, setFinancials] = useState<CompanyFinancials | null>(null);
   const [error, setError] = useState(false);
@@ -102,22 +108,22 @@ export default function DailyPriceTable({ stockCode }: { stockCode: string }) {
                 <tr key={bar.date} className="border-b border-neutral-900 last:border-0">
                   <td className="py-1 pr-2 text-neutral-300">{formatDate(bar.date)}</td>
                   <td className="py-1 pr-2 text-right tabular-nums text-neutral-200">
-                    {bar.open.toLocaleString("ko-KR")}
+                    {formatPrice(bar.open, currency)}
                   </td>
                   <td className="py-1 pr-2 text-right tabular-nums text-neutral-200">
-                    {bar.high.toLocaleString("ko-KR")}
+                    {formatPrice(bar.high, currency)}
                   </td>
                   <td className="py-1 pr-2 text-right tabular-nums text-neutral-200">
-                    {bar.low.toLocaleString("ko-KR")}
+                    {formatPrice(bar.low, currency)}
                   </td>
                   <td className={`py-1 pr-2 text-right tabular-nums ${changeColorClass(change)}`}>
-                    {bar.close.toLocaleString("ko-KR")}
+                    {formatPrice(bar.close, currency)}
                   </td>
                   <td className="py-1 pr-2 text-right tabular-nums text-neutral-300">
                     {bar.volume.toLocaleString("ko-KR")}
                   </td>
                   <td className="py-1 pr-2 text-right tabular-nums text-neutral-300">
-                    {formatKRW(bar.trading_value)}
+                    {formatMoney(bar.trading_value, currency)}
                   </td>
                   <td className="py-1 pr-2 text-right tabular-nums text-neutral-400">
                     {trailingRatio(bar.close, eps)}

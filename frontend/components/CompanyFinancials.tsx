@@ -1,5 +1,5 @@
 import type { CompanyFinancials as CompanyFinancialsData } from "@/types/market";
-import { formatKRW } from "@/lib/format";
+import { filingsSourceLabel, formatMoney } from "@/lib/format";
 
 function RatioCard({ label, value, unit }: { label: string; value: number | null; unit: string }) {
   return (
@@ -10,6 +10,13 @@ function RatioCard({ label, value, unit }: { label: string; value: number | null
       </div>
     </div>
   );
+}
+
+// EPS/BPS는 "주당" 값이라 formatMoney의 K/M/B 축약이 아니라 그대로 표시한다
+// (USD는 $ 접두사 + 소수 2자리, KRW는 기존처럼 원 단위 그대로).
+function formatPerShare(value: number | null, currency: "KRW" | "USD"): string {
+  if (value === null) return "N/A";
+  return currency === "USD" ? `$${value.toFixed(2)}` : `${value.toLocaleString("ko-KR")}원`;
 }
 
 function formatPercent(value: number | null): string {
@@ -34,18 +41,24 @@ function AccountTable({ rows }: { rows: { label: string; value: string }[] }) {
   );
 }
 
-export default function CompanyFinancials({ data }: { data: CompanyFinancialsData }) {
+export default function CompanyFinancials({
+  data,
+  currency,
+}: {
+  data: CompanyFinancialsData;
+  currency: "KRW" | "USD";
+}) {
   const incomeStatementRows = [
-    { label: "매출액", value: formatKRW(data.revenue) },
-    { label: "영업이익", value: formatKRW(data.operating_income) },
-    { label: "당기순이익", value: formatKRW(data.net_income) },
+    { label: "매출액", value: formatMoney(data.revenue, currency) },
+    { label: "영업이익", value: formatMoney(data.operating_income, currency) },
+    { label: "당기순이익", value: formatMoney(data.net_income, currency) },
     { label: "영업이익률", value: formatPercent(data.operating_margin) },
     { label: "순이익률", value: formatPercent(data.net_margin) },
   ];
   const balanceSheetRows = [
-    { label: "자산총계", value: formatKRW(data.total_assets) },
-    { label: "부채총계", value: formatKRW(data.total_liabilities) },
-    { label: "자본총계", value: formatKRW(data.total_equity) },
+    { label: "자산총계", value: formatMoney(data.total_assets, currency) },
+    { label: "부채총계", value: formatMoney(data.total_liabilities, currency) },
+    { label: "자본총계", value: formatMoney(data.total_equity, currency) },
     { label: "부채비율", value: formatPercent(data.debt_ratio) },
   ];
 
@@ -62,8 +75,18 @@ export default function CompanyFinancials({ data }: { data: CompanyFinancialsDat
         <RatioCard label="PER" value={data.per} unit="배" />
         <RatioCard label="PBR" value={data.pbr} unit="배" />
         <RatioCard label="ROE" value={data.roe} unit="%" />
-        <RatioCard label="EPS" value={data.eps} unit="원" />
-        <RatioCard label="BPS" value={data.bps} unit="원" />
+        <div className="border border-neutral-800 p-3">
+          <div className="text-xs text-neutral-300">EPS</div>
+          <div className="mt-1 text-lg font-semibold tabular-nums text-neutral-100">
+            {formatPerShare(data.eps, currency)}
+          </div>
+        </div>
+        <div className="border border-neutral-800 p-3">
+          <div className="text-xs text-neutral-300">BPS</div>
+          <div className="mt-1 text-lg font-semibold tabular-nums text-neutral-100">
+            {formatPerShare(data.bps, currency)}
+          </div>
+        </div>
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-x-8 gap-y-3 border-t border-neutral-900 pt-3 sm:grid-cols-2">
@@ -78,7 +101,7 @@ export default function CompanyFinancials({ data }: { data: CompanyFinancialsDat
       </div>
 
       <p className="mt-2 text-xs text-neutral-400">
-        {data.data_source === "mock" ? "MOCK DATA" : "DART 전자공시"}
+        {filingsSourceLabel(data.data_source)}
       </p>
     </section>
   );

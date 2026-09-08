@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useState } from "react";
 import { getScreener, type ScreenerConditions } from "@/lib/api";
-import { changeColorClass, formatChangeRate, formatKRW } from "@/lib/format";
-import type { ScreenerResult } from "@/types/market";
+import { changeColorClass, formatChangeRate, formatMoney } from "@/lib/format";
+import { currencyForMarket } from "@/lib/market";
+import type { Country, ScreenerResult } from "@/types/market";
 
-const DEFAULT_CONDITIONS: Required<Omit<ScreenerConditions, "market">> = {
+const DEFAULT_CONDITIONS: Required<Omit<ScreenerConditions, "market" | "country">> = {
   limit: 10,
   streak_threshold: 3,
   volume_surge_threshold: 1.5,
@@ -22,7 +23,7 @@ function ScoreBadge({ score }: { score: number }) {
   );
 }
 
-export default function Screener({ data }: { data: ScreenerResult }) {
+export default function Screener({ data, country }: { data: ScreenerResult; country: Country }) {
   const [conditions, setConditions] = useState(DEFAULT_CONDITIONS);
   const [result, setResult] = useState(data);
   const [loading, setLoading] = useState(false);
@@ -40,7 +41,7 @@ export default function Screener({ data }: { data: ScreenerResult }) {
     setLoading(true);
     setError(false);
     try {
-      const next = await getScreener(conditions);
+      const next = await getScreener({ ...conditions, country });
       setResult(next);
     } catch {
       setError(true);
@@ -182,8 +183,8 @@ export default function Screener({ data }: { data: ScreenerResult }) {
                 ))}
               </div>
               <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-neutral-500">
-                <span>외국인 {formatKRW(item.foreign_net_buy)}</span>
-                <span>기관 {formatKRW(item.institution_net_buy)}</span>
+                <span>외국인 {formatMoney(item.foreign_net_buy, currencyForMarket(item.market))}</span>
+                <span>기관 {formatMoney(item.institution_net_buy, currencyForMarket(item.market))}</span>
               </div>
             </li>
           ))}

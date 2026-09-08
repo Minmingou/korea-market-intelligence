@@ -1,5 +1,6 @@
 import AiBrief from "@/components/AiBrief";
 import AutoRefresh from "@/components/AutoRefresh";
+import CountryTabs from "@/components/CountryTabs";
 import MarketEvents from "@/components/MarketEvents";
 import MarketMap from "@/components/MarketMap";
 import MarketMovers from "@/components/MarketMovers";
@@ -10,6 +11,7 @@ import Screener from "@/components/Screener";
 import SearchBar from "@/components/SearchBar";
 import SectorTable from "@/components/SectorTable";
 import ValueScreener from "@/components/ValueScreener";
+import Watchlist from "@/components/Watchlist";
 import {
   getMarketBrief,
   getMarketEvents,
@@ -21,7 +23,8 @@ import {
   getStocks,
   getValueScreener,
 } from "@/lib/api";
-import type { MoverCategory } from "@/types/market";
+import { currencyForMarket } from "@/lib/market";
+import type { Country, MoverCategory } from "@/types/market";
 
 const MOVER_CATEGORIES: MoverCategory[] = [
   "top_gainers",
@@ -32,6 +35,17 @@ const MOVER_CATEGORIES: MoverCategory[] = [
   "institution_net_buy",
 ];
 
+const HEADER_TEXT: Record<Country, { title: string; subtitle: string }> = {
+  KR: {
+    title: "KOREA MARKET INTELLIGENCE",
+    subtitle: "KOSPI/KOSDAQ 시장 상황 · 자금 흐름 · 주도 업종/종목 한눈에 보기",
+  },
+  US: {
+    title: "US MARKET INTELLIGENCE",
+    subtitle: "NYSE/NASDAQ 시장 상황 · 자금 흐름 · 주도 업종/종목 한눈에 보기",
+  },
+};
+
 async function safe<T>(promise: Promise<T>): Promise<T | null> {
   try {
     return await promise;
@@ -40,18 +54,26 @@ async function safe<T>(promise: Promise<T>): Promise<T | null> {
   }
 }
 
-export default async function DashboardPage() {
+type PageProps = {
+  searchParams: Promise<{ country?: string }>;
+};
+
+export default async function DashboardPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const country: Country = params.country?.toUpperCase() === "US" ? "US" : "KR";
+  const currency = currencyForMarket(country === "US" ? "NYSE" : "KOSPI");
+
   const [overview, stocks, sectors, moneyFlow, brief, events, screener, valueScreener, ...movers] =
     await Promise.all([
-      safe(getMarketOverview()),
-      safe(getStocks()),
-      safe(getSectors()),
-      safe(getMoneyFlow()),
-      safe(getMarketBrief()),
-      safe(getMarketEvents(10)),
-      safe(getScreener({ limit: 10 })),
-      safe(getValueScreener({ limit: 10 })),
-      ...MOVER_CATEGORIES.map((category) => safe(getMarketMovers(category, { limit: 10 }))),
+      safe(getMarketOverview(country)),
+      safe(getStocks({ country })),
+      safe(getSectors({ country })),
+      safe(getMoneyFlow({ country })),
+      safe(getMarketBrief(country)),
+      safe(getMarketEvents(10, country)),
+      safe(getScreener({ limit: 10, country })),
+      safe(getValueScreener({ limit: 10, country })),
+      ...MOVER_CATEGORIES.map((category) => safe(getMarketMovers(category, { limit: 10, country }))),
     ]);
 
   const moverResults = movers.filter((m) => m !== null);
@@ -61,16 +83,17 @@ export default async function DashboardPage() {
       <AutoRefresh />
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">KOREA MARKET INTELLIGENCE</h1>
-          <p className="mt-1 text-sm text-neutral-300">
-            KOSPI/KOSDAQ 시장 상황 · 자금 흐름 · 주도 업종/종목 한눈에 보기
-          </p>
+          <h1 className="text-xl font-semibold tracking-tight">{HEADER_TEXT[country].title}</h1>
+          <p className="mt-1 text-sm text-neutral-300">{HEADER_TEXT[country].subtitle}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <CountryTabs active={country} />
           <SearchBar />
           <RefreshButton />
         </div>
       </header>
+
+      <Watchlist />
 
       {brief ? (
         <AiBrief title="AI MARKET BRIEF" data={brief} />
@@ -89,7 +112,7 @@ export default async function DashboardPage() {
       )}
 
       {stocks ? (
-        <MarketMap stocks={stocks} />
+        <MarketMap stocks={stocks} country={country} />
       ) : (
         <p className="border border-red-900 p-4 text-sm text-red-400">
           Market Map 데이터를 불러올 수 없습니다 (N/A).
@@ -98,7 +121,7 @@ export default async function DashboardPage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {sectors ? (
-          <SectorTable initialSectors={sectors} />
+          <SectorTable initialSectors={sectors} country={country} />
         ) : (
           <p className="border border-red-900 p-4 text-sm text-red-400">
             Sector Analysis 데이터를 불러올 수 없습니다 (N/A).
@@ -106,7 +129,7 @@ export default async function DashboardPage() {
         )}
 
         {moneyFlow ? (
-          <MoneyFlow data={moneyFlow} />
+          <MoneyFlow data={moneyFlow} currency={currency} />
         ) : (
           <p className="border border-red-900 p-4 text-sm text-red-400">
             Money Flow 데이터를 불러올 수 없습니다 (N/A).
@@ -116,7 +139,7 @@ export default async function DashboardPage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {screener ? (
-          <Screener data={screener} />
+          <Screener data={screener} country={country} />
         ) : (
           <p className="border border-red-900 p-4 text-sm text-red-400">
             Screener 데이터를 불러올 수 없습니다 (N/A).

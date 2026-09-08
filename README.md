@@ -591,29 +591,96 @@ SCREENER(수급+기술적) 옆에 나란히 둘 밸류/퀄리티 스크리너, (
   결과를 초기값으로 쓰고, 폼에서 조건을 바꿔 "조건 적용"을 누르면 브라우저가 백엔드를 직접
   호출해 결과를 갱신한다.
 
+## 미국 시장(NYSE/NASDAQ) 추가 (사용자 피드백 반영)
+
+국내 시장과 같은 구조로 미국 시장도 볼 수 있게 해달라는 요청에 따라, 대시보드
+상단 탭(국내/미국)으로 전환 가능한 두 번째 마켓을 추가했다. 국내와 마찬가지로
+**Mock 데이터로 먼저 구축**했다(KIS/DART도 원래 이 순서로 실 연동했다) — 캔들차트,
+수급/밸류 스크리너, 재무제표, 공시, 뉴스, AI 브리핑까지 국내와 동일한 기능을
+그대로 제공한다.
+
+- **국가는 항상 마켓에서 파생된다**: DB 스키마에 country 컬럼을 추가하지 않았다.
+  `backend/app/market_types.py`에 `Market`(KOSPI/KOSDAQ/NYSE/NASDAQ)과
+  `Country`(KR/US) 매핑을 한 곳에 모으고, 기존에 4개 API 라우터에 중복 정의돼
+  있던 `Literal["KOSPI","KOSDAQ"]`도 여기서 가져다 쓰도록 정리했다. `Stock`/
+  `CompanyFinancials.stock_code`가 이미 자릿수 제약 없는 순수 문자열이라 미국
+  티커("AAPL")도 마이그레이션 없이 그대로 저장된다.
+- **클라이언트 팩토리가 국가 인자를 받는다**: `get_market_data_client(country)`,
+  `get_filings_client(country)`(구 `get_dart_client`)가 국내는 기존 KIS/DART
+  경로를 그대로 타고, 미국은 신규 `MockUSMarketDataClient`/`MockSecEdgarClient`로
+  분기한다. 실 미국 API는 아직 없어 `USE_MOCK_US_DATA=false`로 바꾸면 LLM과
+  동일하게 `NotImplementedError`가 난다.
+- **Mock 시세 생성 엔진을 공유한다**: `mock_market_client.py`의 생성 알고리즘을
+  유니버스/티어값/기준지수값을 받는 공통 베이스(`BaseMockMarketDataClient`)로
+  추출해서, 국내(`MockMarketDataClient`)와 미국(`MockUSMarketDataClient`)이
+  같은 로직을 재사용한다. 미국 유니버스는 `mock_us_universe.py`에 빅테크·금융·
+  헬스케어·에너지·소비재 등 55종목을 담았다.
+- **재무제표 리포트 라벨**: DART의 사업/분기보고서 라벨 옆에 10-K/10-Q 라벨
+  (`US_REPORT_LABELS`)을 추가해 같은 `_report_label()` 함수가 두 나라 모두
+  처리한다.
+- **한 테이블에 두 나라가 섞이는 문제를 리포지토리 레벨에서 막는다**:
+  `StockRepository.get_all`/`is_fresh_since`가 마켓 리스트를 받도록 확장되어,
+  국가별 조회는 항상 `("KOSPI","KOSDAQ")` 또는 `("NYSE","NASDAQ")`로 필터링된다
+  (예전엔 필터 없는 조회가 "전체"였는데, 미국 종목이 같은 테이블에 들어온 지금은
+  그러면 두 나라 합계가 섞여버린다). 신선도 판정용 갱신 락(`_refresh_locks`)도
+  국가별로 분리해, 한쪽 국가 갱신이 다른 쪽의 갱신 여부에 영향을 주지 않는다.
+- **검색은 국가별로 다른 소스를 쓴다**: 국내는 기존 KIS 전종목 마스터(4,400개)를
+  그대로 쓰고, 미국은 큐레이션된 Mock 유니버스 안에서만 검색한다(대소문자 구분
+  없이 매칭하도록 `search_stock_master`도 함께 고쳤다 — "apple"로 "Apple"을 찾을
+  수 있어야 했다).
+- **`MarketOverviewOut` 스키마 일반화**: 고정된 `kospi`/`kosdaq` 필드를
+  `indices: list[MarketIndexOut]` + `country`로 바꿨다. `MockLLMClient`의 시장
+  브리핑도 `indices`를 순회하도록 바뀌어 "NYSE는 ..., NASDAQ은 ..." 문장이
+  자연스럽게 나온다(조사 처리 로직은 기존 것 재사용).
+- **프론트엔드**: `lib/market.ts`(Market/Country 타입 + 통화 매핑),
+  `lib/format.ts`의 `formatMoney`/`formatPrice`(KRW는 억/조원, USD는 K/M/B·$
+  표기)를 신설하고, 돈을 표시하는 모든 컴포넌트가 종목/지수의 `market` 필드로
+  통화를 판단해 렌더링한다. 대시보드 헤더의 `CountryTabs`(`/?country=us` 쿼리
+  파라미터)로 국내/미국을 전환하며, 종목 상세 페이지는 URL 구조 변경 없이
+  종목코드 형태(6자리 숫자 vs 알파벳 티커)로 국가를 서버에서 자동 판별한다.
+  관심종목(워치리스트)은 종목코드 문자열만 저장하는 구조라 별도 수정 없이
+  국내/미국 양쪽에서 그대로 동작한다.
+
+## 관심종목(워치리스트) (사용자 피드백 반영)
+
+대시보드에 빈 공간이 많다는 피드백에 따라, 사용자가 직접 고른 종목만 모아보는 개인화 기능을
+추가했다.
+
+- 서버에 로그인/계정 개념이 없으므로 백엔드 변경 없이 **브라우저 `localStorage`**
+  (`kmi.watchlist` 키에 종목코드 배열)만으로 구현했다 — 기기/브라우저별로 별도 저장된다.
+- 종목 상세 페이지(`/stocks/{code}`) 헤더의 `☆ 관심종목` 버튼(`WatchlistButton.tsx`)으로
+  추가/제거를 토글한다. 같은 탭 안에서 대시보드 위젯과 상태를 맞추기 위해 `localStorage` 변경
+  시 커스텀 이벤트(`kmi:watchlist-changed`)를 함께 쏘고, 다른 탭과는 표준 `storage` 이벤트로
+  동기화한다(`lib/watchlist.ts`).
+- 대시보드의 `MY WATCHLIST`(`Watchlist.tsx`)는 클라이언트 컴포넌트로, 마운트 후
+  `localStorage`에서 코드 목록을 읽어 기존 `GET /api/stocks/{code}`를 종목마다 병렬 호출해
+  현재가/등락률/거래대금/외국인 순매수를 보여준다 — 서버 컴포넌트인 `page.tsx`는 이 데이터를
+  모르므로 SSR HTML에는 나타나지 않고 하이드레이션 이후에 채워진다(`RefreshButton`과 동일한
+  하이드레이션 불일치 방지 패턴).
+
 ## API 엔드포인트
 
 | Method | Path | 설명 |
 | --- | --- | --- |
 | GET | `/health` | 서버/DB 상태 확인 |
-| GET | `/api/market/overview` | KOSPI/KOSDAQ 지수 + 투자자별 순매수 + 총 거래대금 |
-| GET | `/api/stocks?market=&sort_by=` | 종목 목록 (Market Map/전체 조회용) |
-| GET | `/api/stocks/search?q=&limit=` | 종목 검색 (KOSPI+KOSDAQ 전종목, 코드/종목명) |
-| GET | `/api/stocks/{code}` | 종목 상세 (유니버스 밖 종목은 단건 조회로 즉시 채움) |
+| GET | `/api/market/overview?country=` | 지수(국내 KOSPI/KOSDAQ, 미국 NYSE/NASDAQ) + 투자자별 순매수 + 총 거래대금 |
+| GET | `/api/stocks?market=&country=&sort_by=` | 종목 목록 (Market Map/전체 조회용) |
+| GET | `/api/stocks/search?q=&limit=&country=` | 종목 검색 (국내 KOSPI+KOSDAQ 전종목, 미국은 Mock 유니버스) |
+| GET | `/api/stocks/{code}` | 종목 상세 (유니버스 밖 종목은 단건 조회로 즉시 채움, 국가는 코드 형태로 자동 판별) |
 | GET | `/api/stocks/{code}/chart?period=&count=` | 종목 기간별 시세(일/주/월/년봉 OHLCV, 캔들차트용) |
-| GET | `/api/stocks/movers?category=&market=&limit=` | Market Movers - 전체 시장 기준(top_gainers/top_losers/top_trading_value/top_volume/foreign_net_buy/institution_net_buy) |
-| GET | `/api/sectors?market=&sort_by=` | 업종별 집계 |
-| GET | `/api/flows?market=&top_n=` | 투자자별 자금 흐름 (업종/종목 TOP N) |
-| GET | `/api/stocks/{code}/financials` | 기업 재무제표 + PER/PBR/ROE/EPS/BPS (STEP 7) |
+| GET | `/api/stocks/movers?category=&market=&country=&limit=` | Market Movers - 전체 시장 기준(top_gainers/top_losers/top_trading_value/top_volume/foreign_net_buy/institution_net_buy) |
+| GET | `/api/sectors?market=&country=&sort_by=` | 업종별 집계 |
+| GET | `/api/flows?market=&country=&top_n=` | 투자자별 자금 흐름 (업종/종목 TOP N) |
+| GET | `/api/stocks/{code}/financials` | 기업 재무제표 + PER/PBR/ROE/EPS/BPS (STEP 7, 국내는 DART/사업보고서, 미국은 SEC EDGAR/10-K·10-Q Mock) |
 | GET | `/api/stocks/{code}/financials/history?count=` | 최근 N개 분기 매출액/영업이익/당기순이익 추이 |
 | GET | `/api/stocks/{code}/financials/peer-comparison` | 같은 업종 내 PER/PBR/ROE 평균 비교 |
 | GET | `/api/stocks/{code}/disclosures?count=` | 최근 공시 목록 (STEP 7) |
 | GET | `/api/stocks/{code}/news?count=` | 종목 관련 최근 뉴스 (STEP 8, STEP 17에서 네이버 뉴스 실연동) |
-| GET | `/api/market/brief` | 시장 전체 AI 브리핑 (STEP 9, 현재 Mock만 구현) |
+| GET | `/api/market/brief?country=` | 시장 전체 AI 브리핑 (STEP 9, 현재 Mock만 구현) |
 | GET | `/api/stocks/{code}/brief` | 종목별 AI 브리핑 (STEP 9, 현재 Mock만 구현) |
-| GET | `/api/events?count=` | 시가총액 상위 종목들의 최근 공시 모음 (DART Events) |
-| GET | `/api/screener?market=&limit=&streak_threshold=&volume_surge_threshold=&require_both=&min_score=` | 수급+기술적 스크리너 (조건 커스터마이즈 가능) |
-| GET | `/api/screener/value?market=&limit=` | 밸류/퀄리티 스크리너 |
+| GET | `/api/events?count=&country=` | 시가총액 상위 종목들의 최근 공시 모음 (국내 DART / 미국 SEC EDGAR Mock) |
+| GET | `/api/screener?market=&country=&limit=&streak_threshold=&volume_surge_threshold=&require_both=&min_score=` | 수급+기술적 스크리너 (조건 커스터마이즈 가능) |
+| GET | `/api/screener/value?market=&country=&limit=` | 밸류/퀄리티 스크리너 |
 
 ## 실행 방법
 

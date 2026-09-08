@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.analysis.value_screener_analysis import score_value_candidate
+from app.market_types import Country, resolve_markets
 from app.repositories.stock_repository import StockRepository
 from app.schemas.value_screener import ValueScreenerCandidateOut, ValueScreenerResultOut
 from app.services import company_service
@@ -21,10 +22,16 @@ from app.services.market_service import refresh_if_needed
 _MIN_SCORE = 2  # 신호 1개만으로는 우연일 수 있어 최소 2개는 겹쳐야 노출
 
 
-def get_value_screener(db: Session, market: str | None = None, limit: int = 20) -> ValueScreenerResultOut:
-    refresh_if_needed(db)
+def get_value_screener(
+    db: Session,
+    market: str | None = None,
+    country: Country | None = None,
+    limit: int = 20,
+) -> ValueScreenerResultOut:
+    resolved_country, markets = resolve_markets(market, country)
+    refresh_if_needed(db, resolved_country)
     repo = StockRepository(db)
-    stocks = repo.get_all(market)
+    stocks = repo.get_all(markets)
 
     results: list[ValueScreenerCandidateOut] = []
     evaluated = 0

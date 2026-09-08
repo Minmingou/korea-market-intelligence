@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 
-from app.clients import get_dart_client
+from app.clients import get_filings_client
 from app.clients import dart_client as dart_client_module
 from app.clients.dart_client import DartClient
 from app.clients.mock_dart_client import MockDartClient
@@ -350,13 +350,13 @@ def test_mock_dart_client_fetch_disclosures_unknown_stock_returns_empty():
 
 def test_factory_returns_mock_dart_client_when_use_mock_dart_true(monkeypatch):
     monkeypatch.setattr(settings, "use_mock_dart", True)
-    assert isinstance(get_dart_client(), MockDartClient)
+    assert isinstance(get_filings_client(), MockDartClient)
 
 
 def test_factory_returns_dart_client_when_use_mock_dart_false(monkeypatch):
     monkeypatch.setattr(settings, "use_mock_dart", False)
     monkeypatch.setattr(settings, "dart_api_key", "test-key")
-    assert isinstance(get_dart_client(), DartClient)
+    assert isinstance(get_filings_client(), DartClient)
 
 
 # ---- 재시도/백오프 -----------------------------------------------------------------
@@ -450,7 +450,7 @@ def test_fetch_disclosures_is_cached_across_client_instances(dart_client_with_fa
     client = dart_client_with_fake_transport
     first = client.fetch_disclosures("005930", count=5)
 
-    # get_dart_client()는 요청마다 새 DartClient 인스턴스를 만든다. 새 인스턴스가
+    # get_filings_client()는 요청마다 새 DartClient 인스턴스를 만든다. 새 인스턴스가
     # (실패하는) 트랜스포트를 쓰더라도 캐시가 인스턴스가 아니라 모듈 전역이라면
     # 캐시된 응답을 그대로 돌려줘야 한다.
     def failing_handler(request: httpx.Request) -> httpx.Response:

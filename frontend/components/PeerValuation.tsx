@@ -1,4 +1,5 @@
 import type { PeerValuation as PeerValuationData } from "@/types/market";
+import { filingsSourceLabel } from "@/lib/format";
 
 function diffLabel(value: number | null, peerAvg: number | null): string | null {
   if (value === null || peerAvg === null || peerAvg === 0) return null;
@@ -77,7 +78,7 @@ export default function PeerValuation({ data }: { data: PeerValuationData }) {
         />
       </div>
       <p className="mt-2 text-xs text-neutral-400">
-        {data.data_source === "mock" ? "MOCK DATA" : "DART 전자공시"} · 빨강 = 업종 평균보다 유리
+        {filingsSourceLabel(data.data_source)} · 빨강 = 업종 평균보다 유리
       </p>
     </section>
   );

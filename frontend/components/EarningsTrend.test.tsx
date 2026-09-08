@@ -60,20 +60,20 @@ function data(overrides: Partial<FinancialsHistory>): FinancialsHistory {
 
 describe("EarningsTrend", () => {
   it("renders one bar-chart entry per quarter, stripping the leading year", () => {
-    render(<EarningsTrend data={data({})} />);
+    render(<EarningsTrend data={data({})} currency="KRW" />);
 
     expect(screen.getByText("1분기보고서")).toBeInTheDocument();
     expect(screen.getByText("반기보고서")).toBeInTheDocument();
   });
 
   it("shows an empty-state message when there is no quarterly data", () => {
-    render(<EarningsTrend data={data({ items: [] })} />);
+    render(<EarningsTrend data={data({ items: [] })} currency="KRW" />);
 
     expect(screen.getByText("분기별 실적 데이터가 없습니다 (N/A).")).toBeInTheDocument();
   });
 
   it("shows the data source", () => {
-    render(<EarningsTrend data={data({ data_source: "dart" })} />);
+    render(<EarningsTrend data={data({ data_source: "dart" })} currency="KRW" />);
 
     expect(screen.getByText("DART 전자공시")).toBeInTheDocument();
   });

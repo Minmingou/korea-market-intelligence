@@ -14,8 +14,10 @@ from app.analysis.financial_analysis import (
     compute_roe,
     compute_shares_outstanding,
 )
-from app.clients import get_dart_client
+from app.clients import get_filings_client
 from app.clients.mock_dart_client import MockDartClient
+from app.clients.mock_us_filings_client import MockSecEdgarClient
+from app.market_types import guess_country
 from app.repositories.financials_repository import FinancialsRepository
 from app.repositories.stock_repository import StockRepository
 from app.schemas.company import (
@@ -35,9 +37,26 @@ REPORT_CODE_LABELS = {
     "11014": "3분기보고서",
 }
 
+US_REPORT_LABELS = {
+    "10-K": "연간보고서(10-K)",
+    "10-Q1": "1분기보고서(10-Q)",
+    "10-Q2": "2분기보고서(10-Q)",
+    "10-Q3": "3분기보고서(10-Q)",
+}
+
 
 def _report_label(bsns_year: str, reprt_code: str) -> str:
-    return f"{bsns_year}년 {REPORT_CODE_LABELS.get(reprt_code, reprt_code)}"
+    if reprt_code in REPORT_CODE_LABELS:
+        return f"{bsns_year}년 {REPORT_CODE_LABELS[reprt_code]}"
+    if reprt_code in US_REPORT_LABELS:
+        return f"FY{bsns_year} {US_REPORT_LABELS[reprt_code]}"
+    return f"{bsns_year} {reprt_code}"
+
+
+def _data_source_for(client, country: str) -> str:
+    if isinstance(client, (MockDartClient, MockSecEdgarClient)):
+        return "mock"
+    return "dart" if country == "KR" else "sec_edgar"
 
 
 def get_financials(db: Session, stock_code: str) -> CompanyFinancialsOut | None:
@@ -46,9 +65,9 @@ def get_financials(db: Session, stock_code: str) -> CompanyFinancialsOut | None:
 
     if not repo.is_fresh(stock_code, today):
         try:
-            raw = get_dart_client().fetch_financials(stock_code)
+            raw = get_filings_client(guess_country(stock_code)).fetch_financials(stock_code)
         except Exception:
-            logger.exception("DART 재무제표 갱신에 실패했습니다: %s", stock_code)
+            logger.exception("재무제표 갱신에 실패했습니다: %s", stock_code)
             raw = None
         if raw is not None:
             repo.upsert(raw)
@@ -91,14 +110,15 @@ def get_financials(db: Session, stock_code: str) -> CompanyFinancialsOut | None:
 
 
 def get_financials_history(stock_code: str, count: int = 4) -> FinancialsHistoryOut:
-    client = get_dart_client()
+    country = guess_country(stock_code)
+    client = get_filings_client(country)
     try:
         raw_items = client.fetch_financials_history(stock_code, limit=count)
     except Exception:
-        logger.exception("DART 분기별 재무제표 조회에 실패했습니다: %s", stock_code)
+        logger.exception("분기별 재무제표 조회에 실패했습니다: %s", stock_code)
         raw_items = []
 
-    data_source = "mock" if isinstance(client, MockDartClient) else "dart"
+    data_source = _data_source_for(client, country)
 
     return FinancialsHistoryOut(
         stock_code=stock_code,
@@ -119,14 +139,15 @@ def get_financials_history(stock_code: str, count: int = 4) -> FinancialsHistory
 
 
 def get_disclosures(stock_code: str, count: int = 10) -> DisclosureListOut:
-    client = get_dart_client()
+    country = guess_country(stock_code)
+    client = get_filings_client(country)
     try:
         raw_items = client.fetch_disclosures(stock_code, count)
     except Exception:
-        logger.exception("DART 공시 목록 조회에 실패했습니다: %s", stock_code)
+        logger.exception("공시 목록 조회에 실패했습니다: %s", stock_code)
         raw_items = []
 
-    data_source = "mock" if isinstance(client, MockDartClient) else "dart"
+    data_source = _data_source_for(client, country)
 
     return DisclosureListOut(
         stock_code=stock_code,
